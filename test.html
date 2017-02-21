@@ -190,59 +190,61 @@
             },
             success: function(data) {
                 console.log(data);
-                let last_rtb_point = null; //记录上一次点击显示的站点窗口
-                var _onclick = function(e) {
-                    console.log(e.target);
-                    if(last_rtb_point) {
-                        last_rtb_point.parentNode.removeChild(last_rtb_point);
-                    }
-                    let data = e.target.G.extData;//点击站点的详细信息
-                    let ele = e.target.Da.F.Ej;//点击站点的节点
-                    var point = data.location.split(',');
-                    map.setCenter(new AMap.LngLat(point[0], point[1]));
-                    let content = document.createElement('div');
-                    content.className = 'rtb_point ' + data.id;
-                    content.innerHTML = `<div class="rtb_point_info">
+                map.on('complete',function() {
+                    let last_rtb_point = null; //记录上一次点击显示的站点窗口
+                    var _onclick = function(e) {
+                        console.log(e.target);
+                        if(last_rtb_point) {
+                            last_rtb_point.parentNode.removeChild(last_rtb_point);
+                        }
+                        let data = e.target.G.extData;//点击站点的详细信息
+                        let ele = e.target.Da.F.Ej;//点击站点的节点
+                        var point = data.location.split(',');
+                        map.setCenter(new AMap.LngLat(point[0], point[1]));
+                        let content = document.createElement('div');
+                        content.className = 'rtb_point ' + data.id;
+                        content.innerHTML = `<div class="rtb_point_info">
                                             <div class="rtb_point_info_title">${data.name}</div>
                                             <div class="rtb_point_info_content">途经公交车：${function(){let str = "";data.address.split(';').forEach(function(d){str += ('<a class="rtb_point_busLine" title="' + d + '">' + d + '</a>')});return str}()}</div>
                                         </div>`;
-                    //关闭窗口按钮start
-                    let rtb_point_close = document.createElement('div');
-                    rtb_point_close.className = 'rtb_point_close';
-                    rtb_point_close.innerHTML = 'x';
-                    rtb_point_close.addEventListener('click', function() {
-                        last_rtb_point = null;
-                        ele.removeChild(content);
-                    });
-                    //关闭窗口按钮end
-                    content.appendChild(rtb_point_close);
-                    let sharp = document.createElement('span');
-                    sharp.className = 'rtb_point_sharp';
-                    content.appendChild(sharp);
+                        //关闭窗口按钮start
+                        let rtb_point_close = document.createElement('div');
+                        rtb_point_close.className = 'rtb_point_close';
+                        rtb_point_close.innerHTML = 'x';
+                        rtb_point_close.addEventListener('click', function() {
+                            last_rtb_point = null;
+                            ele.removeChild(content);
+                        });
+                        //关闭窗口按钮end
+                        content.appendChild(rtb_point_close);
+                        let sharp = document.createElement('span');
+                        sharp.className = 'rtb_point_sharp';
+                        content.appendChild(sharp);
 
-                    content.addEventListener('click', function(e) {
-                        if(e.target && e.target.className.includes('rtb_point_busLine')) {
-                            hideBusStation();
-                            lineSearch(e.target.title);
-                        }
-                    });
-                    ele.appendChild(content);
-                    last_rtb_point = content;
-                };
-                for(let busStation of data.pois) {
-                    //let content = '<div classname=' + busStation.id + '>' + busStation.name + '</div>'
-                    let marker = new AMap.Marker({
-                        //content: content,
-                        icon: "http://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
-                        position: busStation.location.split(','),
-                        clickable: true,
-                        map: map,
-                        extData: busStation
-                    });
-                    busStations.push(marker);
-                    marker.setMap(map);
-                    AMap.event.addListener(marker, 'click', _onclick)
-                }
+                        content.addEventListener('click', function(e) {
+                            if(e.target && e.target.className.includes('rtb_point_busLine')) {
+                                hideBusStation();
+                                lineSearch(e.target.title);
+                            }
+                        });
+                        ele.appendChild(content);
+                        last_rtb_point = content;
+                    };
+                    for(let busStation of data.pois) {
+                        //let content = '<div classname=' + busStation.id + '>' + busStation.name + '</div>'
+                        let marker = new AMap.Marker({
+                            //content: content,
+                            icon: "http://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
+                            position: busStation.location.split(','),
+                            clickable: true,
+                            map: map,
+                            extData: busStation
+                        });
+                        busStations.push(marker);
+                        marker.setMap(map);
+                        AMap.event.addListener(marker, 'click', _onclick)
+                    }
+                })
             }
         });
       /*  AMap.service(['AMap.PlaceSearch'], function() {
@@ -297,18 +299,35 @@
         }
     }
     function drawbusLine(startPot,endPot,BusArr, stops) {
+        let lastBusData = []; //上一次获取的实时公交数据
+        let lastGetTime = []; //上一次获取的实时公交时间
+        //起点
         new AMap.Marker({
             map: map,
             position: [startPot.lng, startPot.lat],
-            icon: "http://webapi.amap.com/theme/v1.3/markers/n/start.png",
-            zIndex: 10
+            icon: new AMap.Icon({
+                size: new AMap.Size(40, 50),  //图标大小
+                image: "./img/start.png"
+            }),
+            zIndex: 10,
+            extData: {
+                stopid: 0
+            }
         });
+        //终点
         new AMap.Marker({
             map: map,
             position: [endPot.lng, endPot.lat],
-            icon: "http://webapi.amap.com/theme/v1.3/markers/n/end.png",
-            zIndex: 10
+            icon: new AMap.Icon({
+                size: new AMap.Size(40, 50),  //图标大小
+                image: "./img/end.png"
+            }),
+            zIndex: 10,
+            extData: {
+                stopid: stops.length
+            }
         });
+        //线路
         busPolyline = new AMap.Polyline({
             map: map,
             path:BusArr,
@@ -317,14 +336,67 @@
             strokeWeight:6
         });
         map.setFitView();
-        for(let stop of stops.slice(1, stops.length - 1)) {
-            new AMap.Marker({
+        //途经站点
+        for(let i = 1; i < stops.length - 1; i++) {
+            let marker = new AMap.Marker({
                 map: map,
                 position: [stop.location.lng, stop.location.lat],
                 content: '<div class="rtb_point_stop"></div>',
                 zIndex: 10,
-                offset: new AMap.Pixel(-6, -6)
+                offset: new AMap.Pixel(-6, -6),
+                extData: {
+                    stopid: i
+                }
             });
+            marker.on('click', function(e) {
+                let expire = 100000;
+                let stopid = e.target.getExtData().stopid;
+                if(lastGetTime[stopid]) {
+                    expire = new Date() * 1 - lastGetTime[stopid];
+                }
+                if(expire < 10000) {
+                    updateRealBus(lastBusData[stopid], expire, e.target);
+                } else {
+                    ajax({
+                        url: 'http://218.242.181.88:8080/trafficline/carmonitor',
+                        type: 'get',
+                        data: {
+                            name: '',
+                            lineid: '',
+                            stopid: stopid
+                        },
+                        success: function(data) {
+                            lastGetTime[stopid] = new Date() * 1;
+                            updateRealBus(data, 0, e.target);
+                            lastBusData[stopid] = data;
+                        }
+                    })
+                }
+            })
+        }
+        /*for(let stop of stops.slice(1, stops.length - 1)) {
+            let marker = new AMap.Marker({
+                map: map,
+                position: [stop.location.lng, stop.location.lat],
+                content: '<div class="rtb_point_stop"></div>',
+                zIndex: 10,
+                offset: new AMap.Pixel(-6, -6),
+                extData: {
+                    stopid:
+                }
+            });
+            marker.on('click', function() {
+
+            })
+        }*/
+        let infoWindow = new AMaop.InfoWindow({
+            isCustom: true
+        });
+        //更新实时公交数据
+        function updateRealBus(data, expire, marker) {
+            let str = `<div>123</div>`;
+            infoWindow.setContent(str);
+            infoWindow.open(map, marker.getPosition());
         }
     }
     //lineSearch();
