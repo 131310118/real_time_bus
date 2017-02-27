@@ -359,7 +359,7 @@
             }
         });
         //终点
-        linesearchInfo.end?linesearchInfo.end.setPosition(new AMap.LngLat(startPot.lng, startPot.lat)):linesearchInfo.start = new AMap.Marker({
+        linesearchInfo.end?linesearchInfo.end.setPosition(new AMap.LngLat(endPot.lng, endPot.lat)):linesearchInfo.end = new AMap.Marker({
             map: map,
             position: [endPot.lng, endPot.lat],
             icon: new AMap.Icon({
@@ -387,67 +387,69 @@
             } else {
                 setLinePosition(linesearchInfo.stops.length, stops.length - 2 - linesearchInfo.stops.length, stops);
             }
-        }
-        for(let i = 1, l = stops.length - 1; i < l; i++) {
-            let marker = new AMap.Marker({
-                map: map,
-                position: [stops[i].location.lng, stops[i].location.lat],
-                content: '<div class="rtb_point_stop"></div>',
-                zIndex: 150,
-                offset: new AMap.Pixel(-6, -6),
-                extData: {
-                    stopid: i,
-                    info: stops[i]
-                }
-            });
-            marker.on('click', function(e) {
-                let expire = 100000;
-                let stopid = e.target.getExtData().stopid;
-                if(lastGetTime[stopid]) {
-                    expire = new Date() * 1 - lastGetTime[stopid];
-                }
-                if(expire < 10000) {
-                    updateRealBus(lastBusData[stopid], expire, e.target);
-                } else {
-                    //调用接口获取实时数据
-                    /*ajax({
-                        url: 'http://218.242.181.88:8080/trafficline/carmonitor',
-                        type: 'get',
-                        data: {
-                            name: '',
-                            lineid: '',
-                            stopid: stopid
-                        },
-                        success: function(data) {
-                            lastGetTime[stopid] = new Date() * 1;
-                            updateRealBus(data, 0, e.target);
-                            lastBusData[stopid] = data;
-                        }
-                    })*/
-                    //假数据
-                    let data = {
-                        cars: [{
-                            terminal: '沪B-D3143',
-                            stopdis: 3,
-                            distance: 973,
-                            time: 182
-                        }, {
-                            terminal: null,
-                            stopdis: null,
-                            distance: null,
-                            time: null
-                        }, {
-                            terminal: null,
-                            stopdis: null,
-                            distance: null,
-                            time: null
-                        }]
-                    };
-                    lastGetTime[stopid] = new Date() * 1;
-                    updateRealBus(data, 0, e.target);
-                    lastBusData[stopid] = data;
-                }
-            })
+        } else {
+            setLinePosition(0, stops.length - 2, stops);
+            /*for(let i = 1, l = stops.length - 1; i < l; i++) {
+                let marker = new AMap.Marker({
+                    map: map,
+                    position: [stops[i].location.lng, stops[i].location.lat],
+                    content: '<div class="rtb_point_stop"></div>',
+                    zIndex: 150,
+                    offset: new AMap.Pixel(-6, -6),
+                    extData: {
+                        stopid: i,
+                        info: stops[i]
+                    }
+                });
+                marker.on('click', function(e) {
+                    let expire = 100000;
+                    let stopid = e.target.getExtData().stopid;
+                    if(lastGetTime[stopid]) {
+                        expire = new Date() * 1 - lastGetTime[stopid];
+                    }
+                    if(expire < 10000) {
+                        updateRealBus(lastBusData[stopid], expire, e.target);
+                    } else {
+                        //调用接口获取实时数据
+                    /!*ajax({
+                            url: 'http://218.242.181.88:8080/trafficline/carmonitor',
+                            type: 'get',
+                            data: {
+                                name: '',
+                                lineid: '',
+                                stopid: stopid
+                            },
+                            success: function(data) {
+                                lastGetTime[stopid] = new Date() * 1;
+                                updateRealBus(data, 0, e.target);
+                                lastBusData[stopid] = data;
+                            }
+                        })*!/
+                            //假数据
+                        let data = {
+                            cars: [{
+                                terminal: '沪B-D3143',
+                                stopdis: 3,
+                                distance: 973,
+                                time: 182
+                            }, {
+                                terminal: null,
+                                stopdis: null,
+                                distance: null,
+                                time: null
+                            }, {
+                                terminal: null,
+                                stopdis: null,
+                                distance: null,
+                                time: null
+                            }]
+                        };
+                        lastGetTime[stopid] = new Date() * 1;
+                        updateRealBus(data, 0, e.target);
+                        lastBusData[stopid] = data;
+                    }
+                });
+            }*/
         }
         //站点信息窗口
         let infoWindow = new AMap.InfoWindow({
@@ -487,10 +489,13 @@
             infoWindow.open(map, marker.getPosition());
         }
         function setLinePosition(old, n, stops) {
-            let i = 0;
+            if(linesearchInfo.stops === undefined) {
+                linesearchInfo.stops = [];
+            }
+            let i = 1;
             for(let stop of linesearchInfo.stops) {
                 if(i < old) {
-                    stop.setPosition(new AMap.LngLat(stop.location.lng, stops.location.lat));
+                    stop.setPosition(new AMap.LngLat(stops[i].location.lng, stops[i].location.lat));
                 } else {
                     stop.hide();
                 }
@@ -555,7 +560,7 @@
                         updateRealBus(data, 0, e.target);
                         lastBusData[stopid] = data;
                     }
-                })
+                });
                 linesearchInfo.stops.push(marker);
             }
         }
@@ -574,7 +579,7 @@
             var stops = lineArr[flag].via_stops;
             var startPot = stops[flag].location;
             var endPot = stops[stops.length - 1].location;
-            drawbusLine(startPot, endPot, pathArr, stops, lineArr[flag].name);
+            drawbusLine(startPot, endPot, pathArr, stops, lineArr[flag].name, linesearchInfo);
         }
     }
     //公交线路查询end
