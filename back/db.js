@@ -13,7 +13,7 @@ function connectDB() {
 }
 
 function isKeywordNotExist(name, callback) {
-    db.collection('keywords', function(err, collection) {
+    myDB.collection('keywords', function(err, collection) {
         collection.findOne({'keyword': name}, function(err, item) {
             if(item) {
                 callback(false);
@@ -25,7 +25,7 @@ function isKeywordNotExist(name, callback) {
 }
 
 function searchByKeyword(name, callback) {
-    db.collection('lines', function(err, collection) {
+    myDB.collection('lines', function(err, collection) {
         collection.find({name: {$regex: name}}).limit(10).toArray().then(function(data) {
             callback(data);
         })
@@ -33,7 +33,7 @@ function searchByKeyword(name, callback) {
 }
 
 function insertLine(line) {
-    db.collection('lines', function(err, collection) {
+    myDB.collection('lines', function(err, collection) {
         collection.insertOne(line, function(err, data) {
         });
     })

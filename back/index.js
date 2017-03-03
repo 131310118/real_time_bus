@@ -13,6 +13,7 @@ http.createServer((req, res) => {
     var urlObj = url.parse(req.url);
     //var pathname = url.parse(req.url).pathname;
     console.log('Request for ' + urlObj.pathname + ' received.');
-    route(urlObj, req, res);
+    route.route(urlObj, req, res);
 }).listen(8082);
+console.log('Server has started.');
 
