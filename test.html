@@ -139,12 +139,101 @@
         .rtb_nearBy_point:hover {
             background: #8c9dff;
         }
+        #search {
+            position: fixed;
+            top: 3rem;
+            left: 4rem;
+            background-color: #fff;
+            z-index: 2200;
+            -webkit-border-radius: 5px;
+            -moz-border-radius: 5px;
+            border-radius: 5px;
+            max-width: 250px;
+        }
+        #search_header {
+            padding: 1rem 1rem
+        }
+        #search_body {
+            margin-top: 1rem;
+        }
+        #search_keyword {
+            border: none;
+            outline: 0;
+            width: 219px;
+            font-size: 1.5rem;
+            letter-spacing: 1px;
+        }
+        .hiden {
+            display: none;
+        }
+        .line,.station,.poi,.collectionsListItem {
+            cursor: pointer;
+            padding: 1rem 1rem
+        }
+        .line:hover,.station:hover,.poi:hover,.collectionsListItem:hover {
+            background-color: #eee;
+        }
+        #back {
+            position: absolute;
+            left: -3rem;
+            padding: 1rem 0.5rem 1rem 1rem;
+            height: 19px;
+            font-size: 1rem;
+            background-color: #a5f3e8;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        #back:hover {
+            background-color: #a5f3d3;
+        }
+        #collections {
+            position: fixed;
+            top: 3rem;
+            left: 30rem;
+        }
+        #collectionHeader {
+            font-weight: 600;
+            padding: 1rem;
+            line-height: 4rem;
+            font-size: 1.3rem;
+            background-color: rgba(255, 246, 158, 0.9);
+            cursor: pointer;
+            border-radius: 33%;
+            user-select: none;
+        }
+        .collectionsList {
+            background-color: #fff;
+            z-index: 2200;
+            -webkit-border-radius: 5px;
+            -moz-border-radius: 5px;
+            border-radius: 5px;
+            max-width: 250px;
+            overflow: hidden;
+        }
+       /* .collectionsListItem {
+            cursor: pointer;
+            padding: 1rem 1rem
+        }
+        .collectionsListItem:hover{
+            background-color: #eee;
+        }*/
     </style>
 </head>
 <body>
 <div id="container" style="width:100%;height:100%"></div>
-<div id="pinel"></div>
-<div id="tip"></div>
+<div id="search">
+    <div style="position: relative">
+        <div id="back"><=</div>
+        <div id="search_header">
+            <input type="text" placeholder="搜索公交线路/公交站点/地名" id="search_keyword"/>
+        </div>
+        <div id="search_body" class="hiden"></div>
+    </div>
+</div>
+<div id="collections">
+    <span id="collectionHeader">我的收藏夹</span>
+    <div id="collectionList" class="hiden"><!--79路(平凉路大连路&#45;&#45;原平路阳城路) 灵石路原平路（公交站）--></div>
+</div>
 <script type="text/javascript">
     //加载地图
     let map = new AMap.Map('container', {
@@ -154,32 +243,78 @@
     });
     let busStations = [];//保存附近公交站点
     let busName = null; //公交名
-    let stopIfo = null; //站点信息
     let busline = null; //保存当前所在公交路线
     let busLineId = null; //保存当前公交id
     let busDirection = null; //当前公交方向
     let busLines = {}; //保存公交线路信息
-    let last_rtb_point = null; //记录上一次点击显示的站点窗口
-    let linesearch = null;//公交线路查询服务
+    let linesearch = new AMap.LineSearch({
+        pageIndex: 1,
+        city: 'shanghai',
+        pageSize: 2,
+        extensions: 'all'
+    });//公交线路查询服务
     let lastBusData = []; //上一次获取的实时公交数据
     let lastGetTime = []; //上一次获取的实时公交时间
     let linesearchInfo = {}; //公交线路查询结果
     let nearStops = {}; //周边公交站点相关组件
     let stopid = null; //第几站点
     let dirctionReady = false; //是否确定公交方向
-    let isSearchNearBy = true;
+    let isSearchNearBy = true; //是否周边搜索
     let isSingleLine = false; //是否是单向线路
     let activeBusMarker = null; //实时公交活跃站点
     let config = {
         radius: 500
     }; //用户相关配置
     let container = document.getElementById('container');
+    let searchKeyword = document.getElementById('search_keyword');
+    let searchBody = document.getElementById('search_body');
+    let collections = document.getElementById('collections');
+    let back = document.getElementById('back');
+    let collectionList = document.getElementById('collectionList');
+    back.addEventListener('click', goBackNearBy);
+    let timeout = null;
+    searchKeyword.addEventListener('keydown', function(e) {
+        clearTimeout(timeout);
+        timeout = setTimeout(function() {
+            if(trim(searchKeyword.value)) {
+                search(searchKeyword.value, 1, 10);
+            } else {
+                show(demoData);
+            }
+        }, 300);
+    });
+    searchKeyword.addEventListener('focus', function() {
+        if(searchKeyword.value) {
+            searchBody.className = '';
+        } else {
+            show(demoData);
+        }
+    });
+   /* searchKeyword.addEventListener('blur', function() {
+        searchBody.className = 'hiden';
+    });*/
+    /*container.addEventListener('blur', function() {
+        searchBody.className = 'hiden';
+    });*/
+    map.on('mousedown', function() {
+        searchBody.className = 'hiden';
+    });
     let stopWindow = new AMap.InfoWindow({
         isCustom: true
     }); //公交站点信息窗口
     let infoWindow = new AMap.InfoWindow({
         isCustom: true
     });//实时到站信息窗口
+    let stationSearch = null;
+    AMap.service('AMap.StationSearch',function(){//回调函数
+        //实例化StationSearch
+        stationSearch= new AMap.StationSearch({
+            pageIndex: 1, //页码
+            pageSize: 60, //单页显示结果条数
+            city:'shanghai'    //确定搜索城市
+        });
+        //TODO: 使用stationSearch对象调用行政区查询的功能
+    });
 
     //周边站点搜索相关组件
     let searchNearByButton = document.createElement('div');
@@ -206,6 +341,253 @@
         map: map,
         icon: "http://webapi.amap.com/theme/v1.3/markers/n/mark_b.png"
     });
+
+    //搜索相关
+    let searchResult = [];
+    let searchMap = {
+        line: [],
+        station: [],
+        poi: []
+    };
+    let linesMap = [];
+    let getData = function(page, pageSize, operaterObj, fn, key, type, callback, final) {
+        if(!searchResult[key]) {
+            searchResult[key] = [];
+            searchMap.line[key] = {
+                number: 0,
+                isOver: false
+            };
+            searchMap.station[key] = {
+                number: 0,
+                isOver: false
+            };
+            searchMap.poi[key] = {
+                number: 0,
+                isOver: false
+            };
+        }
+        if(searchResult[key].length < (page + 2) * pageSize) {
+            if(!operaterObj[key].isOver) {
+                let p = Math.floor(operaterObj[key].number / pageSize) + 1;
+                fn(key, null, p, pageSize * 5, function(result) {
+                    if(result.length < pageSize * 5) {
+                        operaterObj[key].isOver = true;
+                    }
+                    result = result.slice(operaterObj.number % pageSize);
+                    result.forEach(function(item) {
+                        item.smType = type;
+                    });
+                    operaterObj[key].number += result.length;
+                    searchResult[key] = searchResult[key].concat(result);
+                    if(callback) {
+                        callback();
+                    }
+                }, null)
+            }
+        } else {
+            if(final) {
+                final();
+            }
+        }
+    };
+    function search(bus, page, pageSize) {
+        /*if(searchResult.length >= page * pageSize) {
+            show(searchResult.slice((page - 1) * pageSize, page * pageSize));
+        }*/
+        if(!searchResult[bus]) {
+            searchResult[bus] = [];
+            searchMap.line[bus] = {
+                number: 0,
+                isOver: false
+            };
+            searchMap.station[bus] = {
+                number: 0,
+                isOver: false
+            };
+            searchMap.poi[bus] = {
+                number: 0,
+                isOver: false
+            };
+        }
+        if(searchResult[bus].length < (page + 2) * pageSize) {
+            if(!searchMap.line[bus].isOver) {
+                let p = Math.floor(searchMap.line[bus].number / pageSize) + 1;
+                lineSearch(bus, null, p, pageSize * 5, function(result) {
+                    result = result.lineInfo;
+                    if(result.length < pageSize * 5) {
+                        searchMap.line[bus].isOver = true;
+                    }
+                    for(let line of result) {
+                        let l = line.name.replace(/\(.*\)/, '');
+                        if(!linesMap[l]) {
+                            let obj = {};
+                            obj.smType = 'line';
+                            obj.name = l;
+                            obj.lineInfo = [line];
+                            linesMap[l] = obj.lineInfo;
+                            searchResult[bus].push(obj);
+                        } else {
+                            linesMap[l].push(line);
+                        }
+                    }
+                    result = result.slice(searchMap.line[bus].number % pageSize);
+                    searchMap.line[bus].number += result.length;
+                    //searchResult[bus] = searchResult[bus].concat(result);
+                }, null)
+            }
+        }
+        //getData(page, pageSize, searchMap.line, lineSearch, bus, "line", function() {
+        getData(page, pageSize, searchMap.station, searchStation, bus, "station", function() {
+            getData(page, pageSize, searchMap.poi, searchPoi, bus, "poi", function() {
+                show(searchResult[bus].slice((page - 1) * pageSize, page * pageSize));
+            }, function() {
+                show(searchResult[bus].slice((page - 1) * pageSize, page * pageSize));
+            });
+        }, function() {
+                show(searchResult[bus].slice((page - 1) * pageSize, page * pageSize));
+            });
+        /*}, function() {
+            show(searchResult[bus].slice((page - 1) * pageSize, page * pageSize));
+        });*/
+    }
+    function searchStation(station, stop, page, pageSize, success, error) {
+        if(stationSearch) {
+            stationSearch.setPageIndex(page);
+            stationSearch.setPageSize(pageSize);
+            stationSearch.search(station, function(status, result){
+                //根据status判断是否有正确结果
+                if(status === 'complete' && result.info === 'OK'){
+                    //取得了正确查询结果
+
+                    //stationSearch_CallBack(result);
+                    console.log(result);
+                    result.stationInfo.forEach(function(station) {
+                        station.location = station.location.getLng() + ',' + station.location.getLat();
+                        station.address = function() {
+                            let arr = [];
+                            for(let line of station.buslines) {
+                                arr.push(line.name.replace(/\(.*\)/, ''));
+                            }
+                            return arr.join(';')
+                        }()
+                    });
+                    success(result.stationInfo, station);
+
+                    //stationSearch_CallBack可以进行一些结果的展示等
+
+                }else{
+                    //查询失败或者没有合适结果
+                    success([], station);
+                }
+            });
+        } else {
+            setTimeout(function() {
+                searchStation(station, page, pageSize, success, error);
+            }, 300);
+        }
+    }
+    function searchPoi(poi, stop, page, pageSize, success, error) {
+        ajax({
+            type: 'get',
+            url: 'http://restapi.amap.com/v3/place/text',
+            data: {
+                key: '79a781fd5bc34c9c04a50d241db792c9',
+                keywords: poi,
+                city: 'shanghai',
+                citylimit: true,
+                offset: pageSize,
+                page: page,
+                output: 'JSON'
+            },
+            success: function(data) {
+                success(data.pois)
+            }
+        });
+    }
+    function show(data) {
+        //console.log(data);
+        let list = document.createElement('div');
+        for(let item of data) {
+            let dom = document.createElement('div');
+            dom.innerHTML = item.name;
+            dom.title = item.name;
+            dom.extData = item;
+            if(item.smType === "line") {
+                dom.className = 'line';
+            } else if(item.smType == 'station') {
+                dom.className = 'station';
+            } else {
+                dom.className = 'poi';
+            }
+            list.appendChild(dom);
+        }
+        list.addEventListener('click', function(e) {
+            let dom = e.target;
+            switch(dom.className) {
+                case 'line':
+                    hideBusStation();
+                    infoWindow.close();
+                    lineSearch_Callback(dom.extData, dom.title, null, true, true);
+                  /*  if(trim(searchKeyword.value)) {
+                        ajax({
+                            url: "",
+                            type: "post",
+                            data: {
+                                data: JSON.stringify(dom.extData)
+                            }
+                        })
+                    }*/
+                    break;
+                case 'station':
+                    let position = dom.extData.location.split(',');
+                    position = new AMap.LngLat(position[0], position[1]);
+                    let marker = new AMap.Marker({
+                        icon: "http://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
+                        position: position,
+                        clickable: true,
+                        map: map,
+                        zIndex: 100,
+                        extData: dom.extData,
+                        bubble: true,
+                        label: {
+                            offset: new AMap.Pixel(2, 0)
+                        }
+                    });
+                    //marker.setMap(map);
+                    AMap.event.addListener(marker, 'click', handleStopMarkerClick);
+                    AMap.event.trigger(marker, 'click', {
+                        target: marker
+                    });
+                    map.setCenter(position);
+                    break;
+                case 'poi':
+                    let lnglat = dom.extData.location.split(',');
+                    lnglat = new AMap.LngLat(lnglat[0], lnglat[1]);
+                    searchNearByMarker.show();
+                    searchNearByInfo.open(map, lnglat);
+                    searchNearByMarker.setPosition(lnglat);
+                    map.setCenter(lnglat);
+
+
+                    /*let p = lnglat;
+                    searchNearByMarker.show();
+                    nearStops.lnglat = p;
+                    nearStops.circle.setCenter(p);
+                    nearStops.circleIn.setCenter(p);
+                    nearStops.circle.show();
+                    nearStops.circleIn.show();
+                    getStops({
+                        location: p.getLng() + ',' + p.getLat(),
+                        radius: config.radius,
+                        position: p
+                    });*/
+                    break;
+            }
+        });
+        searchBody.innerHTML = "";
+        searchBody.appendChild(list);
+        searchBody.className = "";
+    }
 
     //公交站点信息窗口DOM-start
     let content = document.createElement('div');
@@ -234,7 +616,7 @@
     content.addEventListener('click', function(e) {
         if(e.target && e.target.className.includes('rtb_point_busLine')) {
             hideBusStation(); //隐藏周边组件
-            lineSearch(e.target.title, stopInfo.name.match(/[^(]*/)[0]); //公交线路查询
+            lineSearch(e.target.title, stopInfo.name.match(/[^(]*/)[0], 1, 2, lineSearch_Callback, null); //公交线路查询
         }
     });
 
@@ -296,6 +678,9 @@
             }
         }
     }
+    function trim(str) {
+        return str.replace(/(^\s*)|(\s*$)/g, '');
+    }
     //工具函数end
 
     //定位
@@ -326,6 +711,23 @@
         searchNearBy();
         AMap.event.removeListener(geoEventCom);
         AMap.event.removeListener(geoEventErr);
+        //定位出发周边搜索
+       /* AMap.event.addListener(geolocation, 'complete', function(info) {
+            hideLineInfo();
+            searchNearByMarker.hide();
+            let p = info.position;
+            nearStops.lnglat = p;
+            nearStops.circle.setCenter(p);
+            nearStops.circleIn.setCenter(p);
+            nearStops.circle.show();
+            nearStops.circleIn.show();
+            getStops({
+                location: p.getLng() + ',' + p.getLat(),
+                radius: config.radius,
+                position: p
+            })
+        });*/
+        //geoEventErr = AMap.event.addListener(geolocation, 'error', onError);//返回定位出错信息
         var str = ['定位成功'];
         str.push('经度:' + info.position.getLng());
         str.push('纬度:' + info.position.getLat());
@@ -536,6 +938,19 @@
         })
     }
 
+    let handleStopMarkerClick = function(e) {
+        isSearchNearBy = false;
+        searchNearByMarker.hide();
+        searchNearByInfo.close();
+
+        let data = e.target.getExtData();
+        stopInfo = data;
+        var point = data.location.split(',');
+        content_title.innerHTML = data.name;
+        content_content.innerHTML = `途经公交车：${function(){let str = "";data.address.split(';').forEach(function(d){str += ('<a class="rtb_point_busLine" title="' + d + '">' + d + '</a>')});return str}()}`;
+        stopWindow.setContent(content);
+        stopWindow.open(map, e.target.getPosition());
+    };
     /*
      查询周边公交站点
      obj: {
@@ -546,49 +961,7 @@
      */
     function getStops(obj) {
         //站点点击事件弹出站点线路信息
-        let _onclick = function(e) {
-            isSearchNearBy = false;
-            searchNearByMarker.hide();
-            searchNearByInfo.close();
-
-            let data = e.target.getExtData();
-            stopInfo = data;
-            var point = data.location.split(',');
-            content_title.innerHTML = data.name;
-            content_content.innerHTML = `途经公交车：${function(){let str = "";data.address.split(';').forEach(function(d){str += ('<a class="rtb_point_busLine" title="' + d + '">' + d + '</a>')});return str}()}`;
-            //map.setCenter(new AMap.LngLat(point[0], point[1]));
-            //map.setFitView(busStations.concat(nearStops.circle));
-            /*let content = document.createElement('div');
-            content.className = 'rtb_point ';
-            content.innerHTML = `<div class="rtb_point_info">
-            <div class="rtb_point_info_title">${data.name}</div>
-            <div class="rtb_point_info_content">途经公交车：${function(){let str = "";data.address.split(';').forEach(function(d){str += ('<a class="rtb_point_busLine" title="' + d + '">' + d + '</a>')});return str}()}</div>
-            </div>`;
-
-            //关闭窗口按钮start
-            let rtb_point_close = document.createElement('div');
-            rtb_point_close.className = 'rtb_point_close';
-            rtb_point_close.innerHTML = 'x';
-            rtb_point_close.addEventListener('click', function() {
-                stopWindow.close();
-            });
-            //关闭窗口按钮end
-
-            content.appendChild(rtb_point_close);
-            let sharp = document.createElement('span');
-            sharp.className = 'rtb_point_sharp';
-            content.appendChild(sharp);
-
-            //公交线路点击事件，搜索公交线路
-            content.addEventListener('click', function(e) {
-                if(e.target && e.target.className.includes('rtb_point_busLine')) {
-                    hideBusStation(); //隐藏周边组件
-                    lineSearch(e.target.title, data.name.match(/[^(]*!/)[0]); //公交线路查询
-                }
-            });*/
-            stopWindow.setContent(content);
-            stopWindow.open(map, e.target.getPosition());
-        };
+        let _onclick = handleStopMarkerClick;
         //获取周边公交站点
         ajax({
             type: 'get',
@@ -612,7 +985,7 @@
                     for(let busStation of data.pois) {
                         if(i < busStations.length) {
                             busStations[i].show();
-                            busStations[i].setPosition(new AMap.LngLat(busStation.location.split(',')[0], busStation.location.split(',')[1]))
+                            busStations[i].setPosition(new AMap.LngLat(busStation.location.split(',')[0], busStation.location.split(',')[1]));
                             busStations[i].setExtData(busStation);
                         } else {
                             let marker = new AMap.Marker({
@@ -634,9 +1007,12 @@
                         }
                         i++;
                     }
+                    let j = i;
                     for(;i < busStations.length; i++) {
                         busStations[i].hide();
                     }
+                    busStations.length = j;
+
                     _onclick({
                         target: busStations[0]
                     });
@@ -659,21 +1035,17 @@
      bus: string 公交名称
      name: string 站点名称
      */
-    function lineSearch(bus, name) {
-        if(linesearch === null) {
-            linesearch = new AMap.LineSearch({
-                city: 'shanghai',
-                pageSize: 2,
-                extensions: 'all'
-            });
-        }
+    function lineSearch(bus, name, page, pageSize, success, error) {
+        linesearch.setPageIndex(page);
+        linesearch.setPageSize(pageSize);
         linesearch.search(bus, function(status, result) {
             if(status === 'complete' && result.info === 'OK') {
-                busLines[bus] = result; //保存搜索结果
-                busline = bus; //保存搜索公交名
-                lineSearch_Callback(result, bus, name);
+                //busLines[bus] = result; //保存搜索结果
+                //busline = bus; //保存搜索公交名
+                //lineSearch_Callback(result, bus, name);
+                success(result, bus, name);
             } else {
-                console.log(result);
+                success([], bus);
             }
         });
     }
@@ -682,15 +1054,19 @@
      data: object 公交线路查询结果
      bus: string 搜索公交名
      name string 站点名称
+     isDirctionReady boolean 是否确定方向
+     map.setFitView boolean 地图是否自适应
      */
-    function lineSearch_Callback(data, bus, name) {
-        dirctionReady = false; //方向是否确定
+    function lineSearch_Callback(data, bus, name, isDirctionReady, setFitView) {
+        let result = data;
+        data = data.lineInfo;
+        //dirctionReady = isDirctionReady?true:false;//方向是否确定
         //获取公交id
         ajax({
             url: './api/getBusBase',
             type: 'get',
             data: {
-                name: busline
+                name: bus
             },
             success: function(lineInfo) {
                 busLineId = lineInfo.line_id;
@@ -699,7 +1075,7 @@
                     url: './api/getBusStop',
                     type: 'get',
                     data: {
-                        name: busline,
+                        name: bus,
                         lineid: lineInfo.line_id
                     },
                     //数据校正
@@ -707,7 +1083,7 @@
                         //let stops1 = [];
                         let checkData = function(arr) {
                             let i = 0;
-                            for(let line of data.lineInfo) {
+                            for(let line of data) {
                                 let stop = [];
                                 let differentSD = [];
                                 let differentSMY = [];
@@ -715,7 +1091,10 @@
                                 for(s = 0, l = line.via_stops.length; s < l; s++) {
                                     for(g = 0; g < lines[arr[i]].stops.length; g++) {
                                         if(line.via_stops[s].name === lines[arr[i]].stops[g].zdmc.replace('（', '(').replace('）', ')')) {
-                                            if(line.via_stops[s].name === name && !dirctionReady) {
+                                            if(!dirctionReady && line.via_stops[s].name === name && !isSingleLine) {
+                                                dirctionReady = true;
+                                                busDirection = (lines[arr[i]].direction === 'false'?0:1);
+                                            } else if(!dirctionReady && isSingleLine) {
                                                 dirctionReady = true;
                                                 busDirection = (lines[arr[i]].direction === 'false'?0:1);
                                             }
@@ -780,16 +1159,21 @@
                             }
                         }*/
                         if(!lines['lineResults1'].stops || !lines['lineResults0'].stops) {
-                            lineSearch_Callback(data, bus, name);
+                            lineSearch_Callback(data, bus, name, isDirctionReady, setFitView);
                             return;
                         }
+                        busLines[bus] = result; //保存搜索结果
+                        busline = bus; //保存搜索公交名
                         isSingleLine = (!(lines['lineResults1'].stops.length && lines['lineResults0'].stops.length));
-                        if(!isSingleLine && data.lineInfo[0].via_stops[0].name !== lines['lineResults1'].stops[0].zdmc.replace('（', '(').replace('）', ')')
-                                && data.lineInfo[0].via_stops[data.lineInfo[0].via_stops.length - 1].name !== lines['lineResults1'].stops[lines['lineResults1'].stops.length - 1].zdmc.replace('（', '(').replace('）', ')')) {
-                            data.lineInfo = data.lineInfo.reverse();
+                        dirctionReady = isDirctionReady&&!isSingleLine?true:false;//方向是否确定
+                        if(!isSingleLine && data[0].via_stops[0].name !== lines['lineResults1'].stops[0].zdmc.replace('（', '(').replace('）', ')')
+                                && data[0].via_stops[data[0].via_stops.length - 1].name !== lines['lineResults1'].stops[lines['lineResults1'].stops.length - 1].zdmc.replace('（', '(').replace('）', ')')) {
+                            data = data.reverse();
                         } else if(isSingleLine) {
-                            if(!lines['lineResults1'].stops.length) {
-                                data.lineInfo = data.lineInfo.reverse();
+                            if(!lines['lineResults1'].stops.length && data.length > 1) {
+                                data = data.reverse();
+                            } else if(!lines['lineResults1'].stops.length && data.length == 1) {
+                                data[1] = JSON.parse(JSON.stringify(data[0]));
                             }
                         }
                         checkData(['lineResults1', 'lineResults0']);
@@ -831,7 +1215,7 @@
                             busDirection = 0;
                             name = '';
                         }
-                        var lineArr = data.lineInfo;
+                        var lineArr = data;
                         var lineNum = lineArr.length;
                         if(lineNum == 0) {
                         } else {
@@ -840,7 +1224,7 @@
                             var startPot = stops[0].location;
                             var endPot = stops[stops.length - 1].location;
                             busName = lineArr[busDirection].name;
-                            drawbusLine(startPot, endPot, pathArr, stops, name);
+                            drawbusLine(startPot, endPot, pathArr, stops, name, setFitView);
                         }
                     },
                     error: function() {
@@ -857,8 +1241,9 @@
      BusArr: array 路径数组
      stops: array 途经站点
      stopName: string 站点名
+     setFitView: boolean 地图是否自适应
      */
-    function drawbusLine(startPot, endPot, BusArr, stops, stopName) {
+    function drawbusLine(startPot, endPot, BusArr, stops, stopName, setFitView) {
         //实时公交站点点击事件
         let _onclick = function(e) {
             activeBusMarker = e.target;
@@ -898,6 +1283,7 @@
                 }, 50);
             }
         };
+        activeBusMarker = null;
 
         //起点
         if(linesearchInfo.start) {
@@ -918,6 +1304,7 @@
             });
             linesearchInfo.start.on('click', _onclick);
         }
+        linesearchInfo.start.show();
 
         //终点
         if(linesearchInfo.end) {
@@ -943,6 +1330,7 @@
             });
             linesearchInfo.end.on('click', _onclick);
         }
+        linesearchInfo.end.show();
 
         //线路
         linesearchInfo.busPolyline?linesearchInfo.busPolyline.setPath(BusArr):linesearchInfo.busPolyline = new AMap.Polyline({
@@ -952,6 +1340,7 @@
             strokeOpacity: 0.8,
             strokeWeight:6
         });
+        linesearchInfo.busPolyline.show();
         //map.setFitView(); //地图自适应
 
         //途经站点
@@ -971,7 +1360,7 @@
             }
             let i = 1;
             for(let stop of linesearchInfo.stops) {
-                if(i < old) {
+                if(i <= old) {
                     stop.show();
                     stop.setPosition(new AMap.LngLat(stops[i].location.lng, stops[i].location.lat));
                     stop.setExtData({
@@ -997,6 +1386,9 @@
                 });
                 marker.on('click', _onclick);
                 linesearchInfo.stops.push(marker);
+            }
+            if(setFitView) {
+                map.setFitView(); //地图自适应
             }
         }
 
@@ -1055,9 +1447,11 @@
     function switchBusDirection() {
         busDirection  = (busDirection == 1?0:1);
         if(isSingleLine) {
-            activeBusMarker.emit('click', {
-                target: activeBusMarker
-            });
+            if(activeBusMarker) {
+                activeBusMarker.emit('click', {
+                    target: activeBusMarker
+                });
+            }
             return;
         }
         infoWindow.close();
@@ -1075,6 +1469,20 @@
     }
     //公交线路查询end
 
+    //隐藏公交线路
+    function hideLineInfo() {
+        infoWindow.close();
+        for(let item of Object.values(linesearchInfo)) {
+            if(item instanceof Array) {
+                for(let marker of item) {
+                    marker.hide();
+                }
+            } else {
+                item.hide();
+            }
+        }
+    }
+
     //隐藏附近公交站点
     function hideBusStation() {
         busStations.forEach(function(s) {s.hide();});
@@ -1089,6 +1497,60 @@
         nearStops.circleIn.show();
         stopWindow.open(map, busStations[0].getPosition());
     }
+
+    function goBackNearBy() {
+        hideLineInfo();
+        searchNearByMarker.hide();
+        showBusStation();
+        map.setFitView(); //地图自适应
+    }
+    collections.addEventListener('mouseover', function() {
+        if(collectionList.className !== 'hiden') {
+            return;
+        }
+        let list = document.createElement('div');
+        list.className = 'collectionsList';
+        for(let item of collectionDemo.lines) {
+            let dom = document.createElement('div');
+            dom.className = 'collectionsListItem';
+            dom.innerHTML = item.lineInfo[0].name + "--" + item.collectStop;
+            dom.title = item.lineInfo[0].name;
+            dom.extData = item;
+            dom.extData.collectStop = item.collectStop;
+            list.appendChild(dom);
+        }
+        list.addEventListener('click', function(e) {
+            e = e || window.event;
+            hideBusStation();
+            let dom = e.target;
+            busDirection = dom.extData.lineInfo[0].direction;
+            dirctionReady = true;
+            isSingleLine = dom.extData.lineInfo[0].isSingleLine?true:false;
+            busline = dom.title.replace(/\(.*\)/, '');
+            busLines[busline] = dom.extData;
+            var lineArr = busLines[busline].lineInfo;
+            var lineNum = busLines[busline].lineInfo.length;
+            if(lineNum == 0) {
+            } else {
+                var pathArr = lineArr[busDirection].path;
+                var stops = lineArr[busDirection].via_stops;
+                var startPot = stops[0].location;
+                var endPot = stops[stops.length - 1].location;
+                busName =  lineArr[busDirection].name;
+                drawbusLine(startPot, endPot, pathArr, stops, dom.extData.collectStop);
+            }
+        });
+        collectionList.className = "";
+        collectionList.innerHTML = '';
+        collectionList.appendChild(list);
+    });
+    collections.addEventListener('mouseout', function() {
+        collectionList.className = "hiden";
+    });
+
+    var demoData = [{"smType":"line","name":"79路","lineInfo":[{"id":"310100014942","type":"普通公交","name":"79路(原平路永和小区--平凉路大连路)","path":[{"M":31.282431,"I":121.43225100000001,"lng":121.432251,"lat":31.282431},{"M":31.282808,"I":121.43221299999999,"lng":121.432213,"lat":31.282808},{"M":31.284618,"I":121.432121,"lng":121.432121,"lat":31.284618},{"M":31.28549,"I":121.43204500000002,"lng":121.432045,"lat":31.28549},{"M":31.286667,"I":121.43196899999998,"lng":121.431969,"lat":31.286667},{"M":31.287596,"I":121.43190800000002,"lng":121.431908,"lat":31.287596},{"M":31.288069,"I":121.431892,"lng":121.431892,"lat":31.288069},{"M":31.289275,"I":121.43184600000001,"lng":121.431846,"lat":31.289275},{"M":31.289866,"I":121.43532800000003,"lng":121.435328,"lat":31.289866},{"M":31.290494,"I":121.43908299999998,"lng":121.439083,"lat":31.290494},{"M":31.290875,"I":121.44144299999999,"lng":121.441443,"lat":31.290875},{"M":31.290421,"I":121.44156099999998,"lng":121.441561,"lat":31.290421},{"M":31.288837,"I":121.44189499999999,"lng":121.441895,"lat":31.288837},{"M":31.288603,"I":121.44194800000002,"lng":121.441948,"lat":31.288603},{"M":31.288576,"I":121.44194800000002,"lng":121.441948,"lat":31.288576},{"M":31.288242,"I":121.44201700000002,"lng":121.442017,"lat":31.288242},{"M":31.288168,"I":121.44203199999998,"lng":121.442032,"lat":31.288168},{"M":31.287878,"I":121.44207799999998,"lng":121.442078,"lat":31.287878},{"M":31.28776,"I":121.44208500000002,"lng":121.442085,"lat":31.28776},{"M":31.286715,"I":121.44221500000003,"lng":121.442215,"lat":31.286715},{"M":31.285912,"I":121.44231400000001,"lng":121.442314,"lat":31.285912},{"M":31.285299,"I":121.44239800000003,"lng":121.442398,"lat":31.285299},{"M":31.284874,"I":121.442451,"lng":121.442451,"lat":31.284874},{"M":31.284374,"I":121.44253500000002,"lng":121.442535,"lat":31.284374},{"M":31.284166,"I":121.442566,"lng":121.442566,"lat":31.284166},{"M":31.284019,"I":121.442566,"lng":121.442566,"lat":31.284019},{"M":31.283445,"I":121.44264199999998,"lng":121.442642,"lat":31.283445},{"M":31.28323,"I":121.44265000000001,"lng":121.44265,"lat":31.28323},{"M":31.28289,"I":121.44271100000003,"lng":121.442711,"lat":31.28289},{"M":31.282887,"I":121.44271100000003,"lng":121.442711,"lat":31.282887},{"M":31.282951,"I":121.44367999999997,"lng":121.44368,"lat":31.282951},{"M":31.282995,"I":121.44423699999999,"lng":121.444237,"lat":31.282995},{"M":31.283091,"I":121.44539600000002,"lng":121.445396,"lat":31.283091},{"M":31.283216,"I":121.44694500000003,"lng":121.446945,"lat":31.283216},{"M":31.28323,"I":121.447113,"lng":121.447113,"lat":31.28323},{"M":31.28326,"I":121.447449,"lng":121.447449,"lat":31.28326},{"M":31.283295,"I":121.44780700000001,"lng":121.447807,"lat":31.283295},{"M":31.283312,"I":121.448196,"lng":121.448196,"lat":31.283312},{"M":31.28336,"I":121.44881399999997,"lng":121.448814,"lat":31.28336},{"M":31.28336,"I":121.44882999999999,"lng":121.44883,"lat":31.28336},{"M":31.28336,"I":121.44926499999997,"lng":121.449265,"lat":31.28336},{"M":31.28336,"I":121.44988999999998,"lng":121.44989,"lat":31.28336},{"M":31.283356,"I":121.45045500000003,"lng":121.450455,"lat":31.283356},{"M":31.28335,"I":121.45103499999999,"lng":121.451035,"lat":31.28335},{"M":31.283346,"I":121.45121799999998,"lng":121.451218,"lat":31.283346},{"M":31.283356,"I":121.451637,"lng":121.451637,"lat":31.283356},{"M":31.283312,"I":121.451637,"lng":121.451637,"lat":31.283312},{"M":31.282135,"I":121.45173599999998,"lng":121.451736,"lat":31.282135},{"M":31.281649,"I":121.451797,"lng":121.451797,"lat":31.281649},{"M":31.280907,"I":121.45185900000001,"lng":121.451859,"lat":31.280907},{"M":31.279631,"I":121.45199600000001,"lng":121.451996,"lat":31.279631},{"M":31.279379,"I":121.45203400000003,"lng":121.452034,"lat":31.279379},{"M":31.279306,"I":121.45224000000002,"lng":121.45224,"lat":31.279306},{"M":31.279297,"I":121.45263699999998,"lng":121.452637,"lat":31.279297},{"M":31.279335,"I":121.45527600000003,"lng":121.455276,"lat":31.279335},{"M":31.279358,"I":121.456841,"lng":121.456841,"lat":31.279358},{"M":31.279362,"I":121.45702399999999,"lng":121.457024,"lat":31.279362},{"M":31.279375,"I":121.45748100000003,"lng":121.457481,"lat":31.279375},{"M":31.279385,"I":121.45764200000002,"lng":121.457642,"lat":31.279385},{"M":31.279392,"I":121.45860299999998,"lng":121.458603,"lat":31.279392},{"M":31.279396,"I":121.45867900000002,"lng":121.458679,"lat":31.279396},{"M":31.279432,"I":121.45992999999999,"lng":121.45993,"lat":31.279432},{"M":31.27944,"I":121.46017499999999,"lng":121.460175,"lat":31.27944},{"M":31.279453,"I":121.460327,"lng":121.460327,"lat":31.279453},{"M":31.279552,"I":121.46095300000002,"lng":121.460953,"lat":31.279552},{"M":31.279648,"I":121.461502,"lng":121.461502,"lat":31.279648},{"M":31.279701,"I":121.461792,"lng":121.461792,"lat":31.279701},{"M":31.279726,"I":121.46194500000001,"lng":121.461945,"lat":31.279726},{"M":31.279882,"I":121.46279099999998,"lng":121.462791,"lat":31.279882},{"M":31.279905,"I":121.46291400000001,"lng":121.462914,"lat":31.279905},{"M":31.280035,"I":121.463707,"lng":121.463707,"lat":31.280035},{"M":31.280113,"I":121.46419500000002,"lng":121.464195,"lat":31.280113},{"M":31.280134,"I":121.46447799999999,"lng":121.464478,"lat":31.280134},{"M":31.280157,"I":121.465012,"lng":121.465012,"lat":31.280157},{"M":31.280157,"I":121.46533999999997,"lng":121.46534,"lat":31.280157},{"M":31.280022,"I":121.46675099999999,"lng":121.466751,"lat":31.280022},{"M":31.280018,"I":121.46675900000002,"lng":121.466759,"lat":31.280018},{"M":31.280018,"I":121.46675099999999,"lng":121.466751,"lat":31.280018},{"M":31.279974,"I":121.467239,"lng":121.467239,"lat":31.279974},{"M":31.279886,"I":121.46828499999998,"lng":121.468285,"lat":31.279886},{"M":31.279858,"I":121.46869700000002,"lng":121.468697,"lat":31.279858},{"M":31.279814,"I":121.469131,"lng":121.469131,"lat":31.279814},{"M":31.279797,"I":121.469315,"lng":121.469315,"lat":31.279797},{"M":31.279722,"I":121.469604,"lng":121.469604,"lat":31.279722},{"M":31.279596,"I":121.470032,"lng":121.470032,"lat":31.279596},{"M":31.279402,"I":121.47060399999998,"lng":121.470604,"lat":31.279402},{"M":31.279083,"I":121.471474,"lng":121.471474,"lat":31.279083},{"M":31.278351,"I":121.47359499999999,"lng":121.473595,"lat":31.278351},{"M":31.278334,"I":121.47364800000003,"lng":121.473648,"lat":31.278334},{"M":31.27812,"I":121.47425099999998,"lng":121.474251,"lat":31.27812},{"M":31.277912,"I":121.47475400000002,"lng":121.474754,"lat":31.277912},{"M":31.277664,"I":121.47522700000002,"lng":121.475227,"lat":31.277664},{"M":31.277609,"I":121.47531100000003,"lng":121.475311,"lat":31.277609},{"M":31.277431,"I":121.47560900000002,"lng":121.475609,"lat":31.277431},{"M":31.27734,"I":121.475662,"lng":121.475662,"lat":31.27734},{"M":31.276936,"I":121.47631799999999,"lng":121.476318,"lat":31.276936},{"M":31.276575,"I":121.476875,"lng":121.476875,"lat":31.276575},{"M":31.276228,"I":121.47744,"lng":121.47744,"lat":31.276228},{"M":31.275816,"I":121.478226,"lng":121.478226,"lat":31.275816},{"M":31.275721,"I":121.47841599999998,"lng":121.478416,"lat":31.275721},{"M":31.275261,"I":121.47965199999999,"lng":121.479652,"lat":31.275261},{"M":31.275126,"I":121.48004900000001,"lng":121.480049,"lat":31.275126},{"M":31.275043,"I":121.48029300000002,"lng":121.480293,"lat":31.275043},{"M":31.274931,"I":121.48085000000003,"lng":121.48085,"lat":31.274931},{"M":31.274918,"I":121.48094900000001,"lng":121.480949,"lat":31.274918},{"M":31.274914,"I":121.48094900000001,"lng":121.480949,"lat":31.274914},{"M":31.274883,"I":121.48116299999998,"lng":121.481163,"lat":31.274883},{"M":31.274878,"I":121.48116299999998,"lng":121.481163,"lat":31.274878},{"M":31.274826,"I":121.48132299999997,"lng":121.481323,"lat":31.274826},{"M":31.274752,"I":121.48172799999998,"lng":121.481728,"lat":31.274752},{"M":31.274734,"I":121.48197900000002,"lng":121.481979,"lat":31.274734},{"M":31.274734,"I":121.48226899999997,"lng":121.482269,"lat":31.274734},{"M":31.274788,"I":121.48274200000003,"lng":121.482742,"lat":31.274788},{"M":31.274874,"I":121.48324600000001,"lng":121.483246,"lat":31.274874},{"M":31.274897,"I":121.48329899999999,"lng":121.483299,"lat":31.274897},{"M":31.275023,"I":121.483452,"lng":121.483452,"lat":31.275023},{"M":31.275105,"I":121.48374899999999,"lng":121.483749,"lat":31.275105},{"M":31.275326,"I":121.48427600000002,"lng":121.484276,"lat":31.275326},{"M":31.275459,"I":121.48456599999997,"lng":121.484566,"lat":31.275459},{"M":31.275993,"I":121.48562600000002,"lng":121.485626,"lat":31.275993},{"M":31.27622,"I":121.48613699999999,"lng":121.486137,"lat":31.27622},{"M":31.276333,"I":121.48644999999999,"lng":121.48645,"lat":31.276333},{"M":31.276432,"I":121.48679400000003,"lng":121.486794,"lat":31.276432},{"M":31.276497,"I":121.487099,"lng":121.487099,"lat":31.276497},{"M":31.276527,"I":121.48728900000003,"lng":121.487289,"lat":31.276527},{"M":31.276545,"I":121.48751099999998,"lng":121.487511,"lat":31.276545},{"M":31.27655,"I":121.48767099999998,"lng":121.487671,"lat":31.27655},{"M":31.27655,"I":121.48828100000003,"lng":121.488281,"lat":31.27655},{"M":31.27655,"I":121.48843399999998,"lng":121.488434,"lat":31.27655},{"M":31.276545,"I":121.48843399999998,"lng":121.488434,"lat":31.276545},{"M":31.276545,"I":121.48871600000001,"lng":121.488716,"lat":31.276545},{"M":31.27652,"I":121.48973799999999,"lng":121.489738,"lat":31.27652},{"M":31.276497,"I":121.490479,"lng":121.490479,"lat":31.276497},{"M":31.276493,"I":121.49054699999999,"lng":121.490547,"lat":31.276493},{"M":31.276442,"I":121.49274400000002,"lng":121.492744,"lat":31.276442},{"M":31.276436,"I":121.49274400000002,"lng":121.492744,"lat":31.276436},{"M":31.276428,"I":121.49323300000003,"lng":121.493233,"lat":31.276428},{"M":31.276371,"I":121.49522400000001,"lng":121.495224,"lat":31.276371},{"M":31.276337,"I":121.49655899999999,"lng":121.496559,"lat":31.276337},{"M":31.276337,"I":121.49767300000002,"lng":121.497673,"lat":31.276337},{"M":31.276329,"I":121.498291,"lng":121.498291,"lat":31.276329},{"M":31.276299,"I":121.498558,"lng":121.498558,"lat":31.276299},{"M":31.276211,"I":121.499031,"lng":121.499031,"lat":31.276211},{"M":31.276167,"I":121.49916100000002,"lng":121.499161,"lat":31.276167},{"M":31.276007,"I":121.49960299999998,"lng":121.499603,"lat":31.276007},{"M":31.275959,"I":121.49970200000001,"lng":121.499702,"lat":31.275959},{"M":31.275955,"I":121.49970200000001,"lng":121.499702,"lat":31.275955},{"M":31.275928,"I":121.49975599999999,"lng":121.499756,"lat":31.275928},{"M":31.275864,"I":121.49990100000002,"lng":121.499901,"lat":31.275864},{"M":31.275642,"I":121.50035100000002,"lng":121.500351,"lat":31.275642},{"M":31.275513,"I":121.500565,"lng":121.500565,"lat":31.275513},{"M":31.2752,"I":121.50093800000002,"lng":121.500938,"lat":31.2752},{"M":31.274843,"I":121.50133499999998,"lng":121.501335,"lat":31.274843},{"M":31.274731,"I":121.50145700000002,"lng":121.501457,"lat":31.274731},{"M":31.27453,"I":121.501686,"lng":121.501686,"lat":31.27453},{"M":31.274176,"I":121.50212899999997,"lng":121.502129,"lat":31.274176},{"M":31.273954,"I":121.50239599999998,"lng":121.502396,"lat":31.273954},{"M":31.273563,"I":121.50287600000001,"lng":121.502876,"lat":31.273563},{"M":31.2729,"I":121.50367699999998,"lng":121.503677,"lat":31.2729},{"M":31.272274,"I":121.50442499999997,"lng":121.504425,"lat":31.272274},{"M":31.272223,"I":121.50450899999998,"lng":121.504509,"lat":31.272223},{"M":31.271624,"I":121.505226,"lng":121.505226,"lat":31.271624},{"M":31.271589,"I":121.50525700000003,"lng":121.505257,"lat":31.271589},{"M":31.270699,"I":121.50635499999999,"lng":121.506355,"lat":31.270699},{"M":31.270651,"I":121.50640099999998,"lng":121.506401,"lat":31.270651},{"M":31.27062,"I":121.506416,"lng":121.506416,"lat":31.27062},{"M":31.270555,"I":121.50642399999998,"lng":121.506424,"lat":31.270555},{"M":31.270525,"I":121.50642399999998,"lng":121.506424,"lat":31.270525},{"M":31.270498,"I":121.50642399999998,"lng":121.506424,"lat":31.270498},{"M":31.270035,"I":121.50638600000002,"lng":121.506386,"lat":31.270035},{"M":31.26967,"I":121.50636299999996,"lng":121.506363,"lat":31.26967},{"M":31.268871,"I":121.50631699999997,"lng":121.506317,"lat":31.268871},{"M":31.268629,"I":121.506302,"lng":121.506302,"lat":31.268629},{"M":31.268055,"I":121.50629400000003,"lng":121.506294,"lat":31.268055},{"M":31.267656,"I":121.50628699999999,"lng":121.506287,"lat":31.267656},{"M":31.267221,"I":121.50628699999999,"lng":121.506287,"lat":31.267221},{"M":31.266724,"I":121.506279,"lng":121.506279,"lat":31.266724},{"M":31.266581,"I":121.50628699999999,"lng":121.506287,"lat":31.266581},{"M":31.266329,"I":121.50631699999997,"lng":121.506317,"lat":31.266329},{"M":31.266088,"I":121.50635499999999,"lng":121.506355,"lat":31.266088},{"M":31.265656,"I":121.50646999999998,"lng":121.50647,"lat":31.265656},{"M":31.265533,"I":121.506508,"lng":121.506508,"lat":31.265533},{"M":31.26553,"I":121.506508,"lng":121.506508,"lat":31.26553},{"M":31.26549,"I":121.50651600000003,"lng":121.506516,"lat":31.26549},{"M":31.265244,"I":121.50662999999997,"lng":121.50663,"lat":31.265244},{"M":31.265135,"I":121.50669900000003,"lng":121.506699,"lat":31.265135},{"M":31.264757,"I":121.50692700000002,"lng":121.506927,"lat":31.264757},{"M":31.264587,"I":121.50704200000001,"lng":121.507042,"lat":31.264587},{"M":31.263685,"I":121.50762199999997,"lng":121.507622,"lat":31.263685},{"M":31.263229,"I":121.50789600000002,"lng":121.507896,"lat":31.263229},{"M":31.263016,"I":121.50804900000003,"lng":121.508049,"lat":31.263016},{"M":31.262848,"I":121.50818600000002,"lng":121.508186,"lat":31.262848},{"M":31.262695,"I":121.50831599999998,"lng":121.508316,"lat":31.262695},{"M":31.262573,"I":121.50843800000001,"lng":121.508438,"lat":31.262573},{"M":31.262434,"I":121.508423,"lng":121.508423,"lat":31.262434},{"M":31.261787,"I":121.50913200000002,"lng":121.509132,"lat":31.261787},{"M":31.261631,"I":121.50931500000002,"lng":121.509315,"lat":31.261631},{"M":31.261358,"I":121.509636,"lng":121.509636,"lat":31.261358},{"M":31.261171,"I":121.50988799999999,"lng":121.509888,"lat":31.261171},{"M":31.26112,"I":121.510155,"lng":121.510155,"lat":31.26112},{"M":31.26083,"I":121.51048300000002,"lng":121.510483,"lat":31.26083},{"M":31.260626,"I":121.51068900000001,"lng":121.510689,"lat":31.260626},{"M":31.260412,"I":121.51086399999997,"lng":121.510864,"lat":31.260412},{"M":31.259674,"I":121.511528,"lng":121.511528,"lat":31.259674},{"M":31.259201,"I":121.51196299999998,"lng":121.511963,"lat":31.259201},{"M":31.259071,"I":121.51207699999998,"lng":121.512077,"lat":31.259071},{"M":31.258711,"I":121.51238999999998,"lng":121.51239,"lat":31.258711},{"M":31.257982,"I":121.51302299999998,"lng":121.513023,"lat":31.257982},{"M":31.2579,"I":121.51309200000003,"lng":121.513092,"lat":31.2579},{"M":31.257587,"I":121.513351,"lng":121.513351,"lat":31.257587},{"M":31.257278,"I":121.51362599999999,"lng":121.513626,"lat":31.257278},{"M":31.256832,"I":121.51406099999997,"lng":121.514061,"lat":31.256832},{"M":31.256605,"I":121.514252,"lng":121.514252,"lat":31.256605},{"M":31.256493,"I":121.51428199999998,"lng":121.514282,"lat":31.256493},{"M":31.25573,"I":121.51482399999998,"lng":121.514824,"lat":31.25573},{"M":31.255413,"I":121.515038,"lng":121.515038,"lat":31.255413},{"M":31.255217,"I":121.515175,"lng":121.515175,"lat":31.255217},{"M":31.255018,"I":121.515289,"lng":121.515289,"lat":31.255018},{"M":31.254791,"I":121.51542699999999,"lng":121.515427,"lat":31.254791},{"M":31.254379,"I":121.51574700000003,"lng":121.515747,"lat":31.254379},{"M":31.253897,"I":121.516075,"lng":121.516075,"lat":31.253897},{"M":31.253511,"I":121.51633500000003,"lng":121.516335,"lat":31.253511},{"M":31.253113,"I":121.516594,"lng":121.516594,"lat":31.253113},{"M":31.252743,"I":121.51686899999999,"lng":121.516869,"lat":31.252743},{"M":31.251796,"I":121.51759300000003,"lng":121.517593,"lat":31.251796},{"M":31.251572,"I":121.516144,"lng":121.516144,"lat":31.251572},{"M":31.251562,"I":121.51602200000002,"lng":121.516022,"lat":31.251562},{"M":31.251507,"I":121.51515999999998,"lng":121.51516,"lat":31.251507},{"M":31.251467,"I":121.51480900000001,"lng":121.514809,"lat":31.251467},{"M":31.251649,"I":121.51505099999997,"lng":121.515051,"lat":31.251649},{"M":31.252108,"I":121.51578599999999,"lng":121.515786,"lat":31.252108},{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314}],"citycode":"021","start_stop":"原平路永和小区","end_stop":"平凉路大连路","stime":"0530","etime":"2316","company":"上海巴士第一公共交通有限公司","distance":"12.36295","basic_price":"2","total_price":"2","bounds":{"hb":{"M":31.251467,"I":121.43184600000001,"lng":121.431846,"lat":31.251467},"ab":{"M":31.290875,"I":121.51759300000003,"lng":121.517593,"lat":31.290875},"southwest":{"M":31.251467,"I":121.43184600000001,"lng":121.431846,"lat":31.251467},"northeast":{"M":31.290875,"I":121.51759300000003,"lng":121.517593,"lat":31.290875}},"via_stops":[{"id":"BV10865169","location":{"M":31.282431,"I":121.43225100000001,"lng":121.432251,"lat":31.282431},"name":"原平路永和小区","sequence":1},{"id":"BV10030095","location":{"M":31.288069,"I":121.431892,"lng":121.431892,"lat":31.288069},"name":"原平路永和路","sequence":2},{"id":"BV10410165","location":{"M":31.288837,"I":121.44189499999999,"lng":121.441895,"lat":31.288837},"name":"万荣路永和支路","sequence":3},{"id":"BV10025095","location":{"M":31.282951,"I":121.44367999999997,"lng":121.44368,"lat":31.282951},"name":"灵石路万荣路","sequence":4},{"id":"BV10030642","location":{"M":31.28336,"I":121.44882999999999,"lng":121.44883,"lat":31.28336},"name":"灵石路共和新路","sequence":5},{"id":"BV10025188","location":{"M":31.279358,"I":121.456841,"lng":121.456841,"lat":31.279358},"name":"广中路平型关路","sequence":6},{"id":"BV10024619","location":{"M":31.280022,"I":121.46675099999999,"lng":121.466751,"lat":31.280022},"name":"广中路广粤路","sequence":7},{"id":"BV10025164","location":{"M":31.278351,"I":121.47359499999999,"lng":121.473595,"lat":31.278351},"name":"广中路水电路","sequence":8},{"id":"BV10025187","location":{"M":31.274918,"I":121.48094900000001,"lng":121.480949,"lat":31.274918},"name":"大连西路东体育会路","sequence":9},{"id":"BV10024533","location":{"M":31.27655,"I":121.48843399999998,"lng":121.488434,"lat":31.27655},"name":"大连西路曲阳路","sequence":10},{"id":"BV10765226","location":{"M":31.276442,"I":121.49274400000002,"lng":121.492744,"lat":31.276442},"name":"大连西路玉田新村","sequence":11},{"id":"BV10025185","location":{"M":31.275959,"I":121.49970200000001,"lng":121.499702,"lat":31.275959},"name":"大连西路四平路","sequence":12},{"id":"BV10025184","location":{"M":31.271624,"I":121.505226,"lng":121.505226,"lat":31.271624},"name":"和平公园","sequence":13},{"id":"BV10025193","location":{"M":31.265533,"I":121.506508,"lng":121.506508,"lat":31.265533},"name":"大连路飞虹路","sequence":14},{"id":"BV10024556","location":{"M":31.261631,"I":121.50931500000002,"lng":121.509315,"lat":31.261631},"name":"大连路周家嘴路","sequence":15},{"id":"BV10025183","location":{"M":31.259071,"I":121.51207699999998,"lng":121.512077,"lat":31.259071},"name":"大连路长阳路","sequence":16},{"id":"BV10024898","location":{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314},"name":"平凉路大连路","sequence":17}]},{"id":"310100014941","type":"普通公交","name":"79路(平凉路大连路--原平路阳城路)","path":[{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314},{"M":31.252743,"I":121.51686899999999,"lng":121.516869,"lat":31.252743},{"M":31.252892,"I":121.51711999999998,"lng":121.51712,"lat":31.252892},{"M":31.253012,"I":121.517067,"lng":121.517067,"lat":31.253012},{"M":31.253273,"I":121.51687600000002,"lng":121.516876,"lat":31.253273},{"M":31.254045,"I":121.51631900000001,"lng":121.516319,"lat":31.254045},{"M":31.255156,"I":121.51554899999996,"lng":121.515549,"lat":31.255156},{"M":31.255339,"I":121.51542699999999,"lng":121.515427,"lat":31.255339},{"M":31.25543,"I":121.515289,"lng":121.515289,"lat":31.25543},{"M":31.25671,"I":121.514389,"lng":121.514389,"lat":31.25671},{"M":31.257677,"I":121.51350400000001,"lng":121.513504,"lat":31.257677},{"M":31.258013,"I":121.51322900000002,"lng":121.513229,"lat":31.258013},{"M":31.258095,"I":121.51316099999997,"lng":121.513161,"lat":31.258095},{"M":31.258963,"I":121.51236,"lng":121.51236,"lat":31.258963},{"M":31.25905,"I":121.512291,"lng":121.512291,"lat":31.25905},{"M":31.259588,"I":121.51182599999999,"lng":121.511826,"lat":31.259588},{"M":31.259775,"I":121.511665,"lng":121.511665,"lat":31.259775},{"M":31.260504,"I":121.510986,"lng":121.510986,"lat":31.260504},{"M":31.260677,"I":121.51083399999999,"lng":121.510834,"lat":31.260677},{"M":31.260864,"I":121.51064300000002,"lng":121.510643,"lat":31.260864},{"M":31.261051,"I":121.51045199999999,"lng":121.510452,"lat":31.261051},{"M":31.261229,"I":121.51023099999998,"lng":121.510231,"lat":31.261229},{"M":31.262297,"I":121.509026,"lng":121.509026,"lat":31.262297},{"M":31.26263,"I":121.50862899999998,"lng":121.508629,"lat":31.26263},{"M":31.262747,"I":121.50849900000003,"lng":121.508499,"lat":31.262747},{"M":31.262865,"I":121.508377,"lng":121.508377,"lat":31.262865},{"M":31.263086,"I":121.508194,"lng":121.508194,"lat":31.263086},{"M":31.263746,"I":121.50775899999996,"lng":121.507759,"lat":31.263746},{"M":31.264488,"I":121.50730099999998,"lng":121.507301,"lat":31.264488},{"M":31.264652,"I":121.50718699999999,"lng":121.507187,"lat":31.264652},{"M":31.264832,"I":121.50706500000001,"lng":121.507065,"lat":31.264832},{"M":31.265022,"I":121.50694299999998,"lng":121.506943,"lat":31.265022},{"M":31.26523,"I":121.506821,"lng":121.506821,"lat":31.26523},{"M":31.265308,"I":121.50678299999998,"lng":121.506783,"lat":31.265308},{"M":31.265495,"I":121.50668300000001,"lng":121.506683,"lat":31.265495},{"M":31.265699,"I":121.506599,"lng":121.506599,"lat":31.265699},{"M":31.265928,"I":121.50651600000003,"lng":121.506516,"lat":31.265928},{"M":31.266272,"I":121.506462,"lng":121.506462,"lat":31.266272},{"M":31.266407,"I":121.50642399999998,"lng":121.506424,"lat":31.266407},{"M":31.266523,"I":121.506416,"lng":121.506416,"lat":31.266523},{"M":31.266588,"I":121.506416,"lng":121.506416,"lat":31.266588},{"M":31.266645,"I":121.50640900000002,"lng":121.506409,"lat":31.266645},{"M":31.267105,"I":121.50640900000002,"lng":121.506409,"lat":31.267105},{"M":31.267221,"I":121.506416,"lng":121.506416,"lat":31.267221},{"M":31.267653,"I":121.50642399999998,"lng":121.506424,"lat":31.267653},{"M":31.26766,"I":121.50642399999998,"lng":121.506424,"lat":31.26766},{"M":31.268061,"I":121.506439,"lng":121.506439,"lat":31.268061},{"M":31.268381,"I":121.506462,"lng":121.506462,"lat":31.268381},{"M":31.268623,"I":121.506462,"lng":121.506462,"lat":31.268623},{"M":31.268803,"I":121.506462,"lng":121.506462,"lat":31.268803},{"M":31.269466,"I":121.50649299999998,"lng":121.506493,"lat":31.269466},{"M":31.26967,"I":121.506508,"lng":121.506508,"lat":31.26967},{"M":31.270039,"I":121.506531,"lng":121.506531,"lat":31.270039},{"M":31.270464,"I":121.50656100000003,"lng":121.506561,"lat":31.270464},{"M":31.270535,"I":121.50656100000003,"lng":121.506561,"lat":31.270535},{"M":31.270586,"I":121.50654600000001,"lng":121.506546,"lat":31.270586},{"M":31.270664,"I":121.50647700000002,"lng":121.506477,"lat":31.270664},{"M":31.271416,"I":121.50559199999998,"lng":121.505592,"lat":31.271416},{"M":31.271641,"I":121.50531799999999,"lng":121.505318,"lat":31.271641},{"M":31.272257,"I":121.504547,"lng":121.504547,"lat":31.272257},{"M":31.272356,"I":121.50442499999997,"lng":121.504425,"lat":31.272356},{"M":31.272661,"I":121.504074,"lng":121.504074,"lat":31.272661},{"M":31.272938,"I":121.50375400000001,"lng":121.503754,"lat":31.272938},{"M":31.273458,"I":121.50308999999999,"lng":121.50309,"lat":31.273458},{"M":31.273958,"I":121.50249500000001,"lng":121.502495,"lat":31.273958},{"M":31.273998,"I":121.50244900000001,"lng":121.502449,"lat":31.273998},{"M":31.274223,"I":121.502182,"lng":121.502182,"lat":31.274223},{"M":31.274588,"I":121.50176199999999,"lng":121.501762,"lat":31.274588},{"M":31.274792,"I":121.50152600000001,"lng":121.501526,"lat":31.274792},{"M":31.274904,"I":121.50138900000002,"lng":121.501389,"lat":31.274904},{"M":31.275269,"I":121.500969,"lng":121.500969,"lat":31.275269},{"M":31.275391,"I":121.50081599999999,"lng":121.500816,"lat":31.275391},{"M":31.275595,"I":121.50054899999998,"lng":121.500549,"lat":31.275595},{"M":31.275894,"I":121.49999200000002,"lng":121.499992,"lat":31.275894},{"M":31.275999,"I":121.49975599999999,"lng":121.499756,"lat":31.275999},{"M":31.276051,"I":121.499619,"lng":121.499619,"lat":31.276051},{"M":31.276129,"I":121.499413,"lng":121.499413,"lat":31.276129},{"M":31.276237,"I":121.499031,"lng":121.499031,"lat":31.276237},{"M":31.276302,"I":121.498764,"lng":121.498764,"lat":31.276302},{"M":31.27634,"I":121.49855000000002,"lng":121.49855,"lat":31.27634},{"M":31.276377,"I":121.498245,"lng":121.498245,"lat":31.276377},{"M":31.276388,"I":121.49804699999999,"lng":121.498047,"lat":31.276388},{"M":31.276405,"I":121.49766499999998,"lng":121.497665,"lat":31.276405},{"M":31.276398,"I":121.49655899999999,"lng":121.496559,"lat":31.276398},{"M":31.276415,"I":121.495972,"lng":121.495972,"lat":31.276415},{"M":31.276432,"I":121.49522400000001,"lng":121.495224,"lat":31.276432},{"M":31.276442,"I":121.494911,"lng":121.494911,"lat":31.276442},{"M":31.276449,"I":121.49456800000002,"lng":121.494568,"lat":31.276449},{"M":31.276459,"I":121.49409500000002,"lng":121.494095,"lat":31.276459},{"M":31.276476,"I":121.49338499999999,"lng":121.493385,"lat":31.276476},{"M":31.27648,"I":121.49323300000003,"lng":121.493233,"lat":31.27648},{"M":31.276489,"I":121.49294299999997,"lng":121.492943,"lat":31.276489},{"M":31.276514,"I":121.49163099999998,"lng":121.491631,"lat":31.276514},{"M":31.276545,"I":121.49054699999999,"lng":121.490547,"lat":31.276545},{"M":31.27655,"I":121.490433,"lng":121.490433,"lat":31.27655},{"M":31.276567,"I":121.48973799999999,"lng":121.489738,"lat":31.276567},{"M":31.276606,"I":121.48828100000003,"lng":121.488281,"lat":31.276606},{"M":31.276619,"I":121.48791499999999,"lng":121.487915,"lat":31.276619},{"M":31.276619,"I":121.48777799999999,"lng":121.487778,"lat":31.276619},{"M":31.276606,"I":121.48742700000003,"lng":121.487427,"lat":31.276606},{"M":31.276585,"I":121.487236,"lng":121.487236,"lat":31.276585},{"M":31.276545,"I":121.48699999999997,"lng":121.487,"lat":31.276545},{"M":31.27648,"I":121.48670199999998,"lng":121.486702,"lat":31.27648},{"M":31.276302,"I":121.48612200000002,"lng":121.486122,"lat":31.276302},{"M":31.276072,"I":121.485588,"lng":121.485588,"lat":31.276072},{"M":31.275846,"I":121.485138,"lng":121.485138,"lat":31.275846},{"M":31.275391,"I":121.48425299999997,"lng":121.484253,"lat":31.275391},{"M":31.275286,"I":121.483994,"lng":121.483994,"lat":31.275286},{"M":31.2752,"I":121.48372699999999,"lng":121.483727,"lat":31.2752},{"M":31.275126,"I":121.48342100000002,"lng":121.483421,"lat":31.275126},{"M":31.275101,"I":121.48326099999997,"lng":121.483261,"lat":31.275101},{"M":31.275095,"I":121.48326099999997,"lng":121.483261,"lat":31.275095},{"M":31.275074,"I":121.483139,"lng":121.483139,"lat":31.275074},{"M":31.27503,"I":121.48274200000003,"lng":121.482742,"lat":31.27503},{"M":31.275,"I":121.48216200000002,"lng":121.482162,"lat":31.275},{"M":31.274948,"I":121.48201799999998,"lng":121.482018,"lat":31.274948},{"M":31.274975,"I":121.48143800000003,"lng":121.481438,"lat":31.274975},{"M":31.275009,"I":121.481178,"lng":121.481178,"lat":31.275009},{"M":31.275078,"I":121.48082,"lng":121.48082,"lat":31.275078},{"M":31.275227,"I":121.48020200000002,"lng":121.480202,"lat":31.275227},{"M":31.275356,"I":121.479736,"lng":121.479736,"lat":31.275356},{"M":31.275412,"I":121.47954600000003,"lng":121.479546,"lat":31.275412},{"M":31.27566,"I":121.478882,"lng":121.478882,"lat":31.27566},{"M":31.275812,"I":121.47850800000003,"lng":121.478508,"lat":31.275812},{"M":31.275867,"I":121.478386,"lng":121.478386,"lat":31.275867},{"M":31.276268,"I":121.47767599999997,"lng":121.477676,"lat":31.276268},{"M":31.276663,"I":121.477058,"lng":121.477058,"lat":31.276663},{"M":31.276667,"I":121.47695899999997,"lng":121.476959,"lat":31.276667},{"M":31.276888,"I":121.476631,"lng":121.476631,"lat":31.276888},{"M":31.277035,"I":121.47641799999997,"lng":121.476418,"lat":31.277035},{"M":31.277353,"I":121.47593699999999,"lng":121.475937,"lat":31.277353},{"M":31.277517,"I":121.47567700000002,"lng":121.475677,"lat":31.277517},{"M":31.277739,"I":121.47529600000001,"lng":121.475296,"lat":31.277739},{"M":31.277803,"I":121.475189,"lng":121.475189,"lat":31.277803},{"M":31.278008,"I":121.47477700000002,"lng":121.474777,"lat":31.278008},{"M":31.27812,"I":121.47452499999997,"lng":121.474525,"lat":31.27812},{"M":31.278263,"I":121.47415899999999,"lng":121.474159,"lat":31.278263},{"M":31.278824,"I":121.472534,"lng":121.472534,"lat":31.278824},{"M":31.278967,"I":121.47209900000001,"lng":121.472099,"lat":31.278967},{"M":31.278971,"I":121.47209900000001,"lng":121.472099,"lat":31.278971},{"M":31.279097,"I":121.47173299999997,"lng":121.471733,"lat":31.279097},{"M":31.27927,"I":121.47119900000001,"lng":121.471199,"lat":31.27927},{"M":31.279657,"I":121.47008499999998,"lng":121.470085,"lat":31.279657},{"M":31.279766,"I":121.46977200000003,"lng":121.469772,"lat":31.279766},{"M":31.279814,"I":121.469627,"lng":121.469627,"lat":31.279814},{"M":31.279909,"I":121.46914700000002,"lng":121.469147,"lat":31.279909},{"M":31.279947,"I":121.46892500000001,"lng":121.468925,"lat":31.279947},{"M":31.280005,"I":121.46828499999998,"lng":121.468285,"lat":31.280005},{"M":31.280039,"I":121.467896,"lng":121.467896,"lat":31.280039},{"M":31.280096,"I":121.46725500000002,"lng":121.467255,"lat":31.280096},{"M":31.280151,"I":121.466591,"lng":121.466591,"lat":31.280151},{"M":31.280209,"I":121.46591899999999,"lng":121.465919,"lat":31.280209},{"M":31.28027,"I":121.465195,"lng":121.465195,"lat":31.28027},{"M":31.280273,"I":121.46501899999998,"lng":121.465019,"lat":31.280273},{"M":31.28027,"I":121.46476000000001,"lng":121.46476,"lat":31.28027},{"M":31.280247,"I":121.46435500000001,"lng":121.464355,"lat":31.280247},{"M":31.280222,"I":121.46402,"lng":121.46402,"lat":31.280222},{"M":31.280178,"I":121.463684,"lng":121.463684,"lat":31.280178},{"M":31.280035,"I":121.462898,"lng":121.462898,"lat":31.280035},{"M":31.280012,"I":121.462761,"lng":121.462761,"lat":31.280012},{"M":31.279879,"I":121.46202900000003,"lng":121.462029,"lat":31.279879},{"M":31.279844,"I":121.461792,"lng":121.461792,"lat":31.279844},{"M":31.279791,"I":121.461502,"lng":121.461502,"lat":31.279791},{"M":31.279783,"I":121.461433,"lng":121.461433,"lat":31.279783},{"M":31.279631,"I":121.460625,"lng":121.460625,"lat":31.279631},{"M":31.279593,"I":121.460327,"lng":121.460327,"lat":31.279593},{"M":31.279579,"I":121.46012100000002,"lng":121.460121,"lat":31.279579},{"M":31.279575,"I":121.45999899999998,"lng":121.459999,"lat":31.279575},{"M":31.279549,"I":121.45862599999998,"lng":121.458626,"lat":31.279549},{"M":31.279549,"I":121.458504,"lng":121.458504,"lat":31.279549},{"M":31.279518,"I":121.45764200000002,"lng":121.457642,"lat":31.279518},{"M":31.279518,"I":121.45746600000001,"lng":121.457466,"lat":31.279518},{"M":31.279505,"I":121.45699300000001,"lng":121.456993,"lat":31.279505},{"M":31.279488,"I":121.45526100000001,"lng":121.455261,"lat":31.279488},{"M":31.279461,"I":121.45391799999999,"lng":121.453918,"lat":31.279461},{"M":31.279432,"I":121.45224000000002,"lng":121.45224,"lat":31.279432},{"M":31.279634,"I":121.45224000000002,"lng":121.45224,"lat":31.279634},{"M":31.279917,"I":121.45217100000002,"lng":121.452171,"lat":31.279917},{"M":31.280512,"I":121.45211,"lng":121.45211,"lat":31.280512},{"M":31.280899,"I":121.45208000000002,"lng":121.45208,"lat":31.280899},{"M":31.281471,"I":121.45201099999997,"lng":121.452011,"lat":31.281471},{"M":31.282135,"I":121.45196499999997,"lng":121.451965,"lat":31.282135},{"M":31.282452,"I":121.45194200000003,"lng":121.451942,"lat":31.282452},{"M":31.283272,"I":121.451889,"lng":121.451889,"lat":31.283272},{"M":31.283333,"I":121.451889,"lng":121.451889,"lat":31.283333},{"M":31.283716,"I":121.45185900000001,"lng":121.451859,"lat":31.283716},{"M":31.284142,"I":121.45180499999998,"lng":121.451805,"lat":31.284142},{"M":31.284588,"I":121.451775,"lng":121.451775,"lat":31.284588},{"M":31.284592,"I":121.451775,"lng":121.451775,"lat":31.284592},{"M":31.284588,"I":121.451775,"lng":121.451775,"lat":31.284588},{"M":31.285578,"I":121.45169099999998,"lng":121.451691,"lat":31.285578},{"M":31.286293,"I":121.451614,"lng":121.451614,"lat":31.286293},{"M":31.286697,"I":121.45154600000001,"lng":121.451546,"lat":31.286697},{"M":31.286837,"I":121.45152999999999,"lng":121.45153,"lat":31.286837},{"M":31.287092,"I":121.45149200000003,"lng":121.451492,"lat":31.287092},{"M":31.287388,"I":121.45143100000001,"lng":121.451431,"lat":31.287388},{"M":31.287388,"I":121.45142399999997,"lng":121.451424,"lat":31.287388},{"M":31.287807,"I":121.45135500000004,"lng":121.451355,"lat":31.287807},{"M":31.288195,"I":121.45128599999998,"lng":121.451286,"lat":31.288195},{"M":31.288837,"I":121.45114899999999,"lng":121.451149,"lat":31.288837},{"M":31.289158,"I":121.45107300000001,"lng":121.451073,"lat":31.289158},{"M":31.289114,"I":121.45072900000002,"lng":121.450729,"lat":31.289114},{"M":31.288815,"I":121.44878399999999,"lng":121.448784,"lat":31.288815},{"M":31.288811,"I":121.44878399999999,"lng":121.448784,"lat":31.288811},{"M":31.288719,"I":121.448174,"lng":121.448174,"lat":31.288719},{"M":31.28846,"I":121.44656399999997,"lng":121.446564,"lat":31.28846},{"M":31.288372,"I":121.44596100000001,"lng":121.445961,"lat":31.288372},{"M":31.288342,"I":121.44583899999998,"lng":121.445839,"lat":31.288342},{"M":31.288269,"I":121.445335,"lng":121.445335,"lat":31.288269},{"M":31.288185,"I":121.44487800000002,"lng":121.444878,"lat":31.288185},{"M":31.288134,"I":121.444458,"lng":121.444458,"lat":31.288134},{"M":31.288082,"I":121.44415300000003,"lng":121.444153,"lat":31.288082},{"M":31.288076,"I":121.44415300000003,"lng":121.444153,"lat":31.288076},{"M":31.287939,"I":121.44328300000001,"lng":121.443283,"lat":31.287939},{"M":31.287756,"I":121.44208500000002,"lng":121.442085,"lat":31.287756},{"M":31.286711,"I":121.44221500000003,"lng":121.442215,"lat":31.286711},{"M":31.285908,"I":121.44231400000001,"lng":121.442314,"lat":31.285908},{"M":31.285295,"I":121.44239800000003,"lng":121.442398,"lat":31.285295},{"M":31.28487,"I":121.442451,"lng":121.442451,"lat":31.28487},{"M":31.28437,"I":121.44253500000002,"lng":121.442535,"lat":31.28437},{"M":31.284163,"I":121.442566,"lng":121.442566,"lat":31.284163},{"M":31.284016,"I":121.442566,"lng":121.442566,"lat":31.284016},{"M":31.283442,"I":121.44264199999998,"lng":121.442642,"lat":31.283442},{"M":31.283224,"I":121.44265000000001,"lng":121.44265,"lat":31.283224},{"M":31.282887,"I":121.44271100000003,"lng":121.442711,"lat":31.282887},{"M":31.28274,"I":121.44146699999999,"lng":121.441467,"lat":31.28274},{"M":31.28274,"I":121.44146,"lng":121.44146,"lat":31.28274},{"M":31.282696,"I":121.44110899999998,"lng":121.441109,"lat":31.282696},{"M":31.282608,"I":121.44037600000001,"lng":121.440376,"lat":31.282608},{"M":31.282587,"I":121.44016999999997,"lng":121.44017,"lat":31.282587},{"M":31.28253,"I":121.43962099999999,"lng":121.439621,"lat":31.28253},{"M":31.282457,"I":121.43920100000003,"lng":121.439201,"lat":31.282457},{"M":31.282404,"I":121.438988,"lng":121.438988,"lat":31.282404},{"M":31.282318,"I":121.43869000000001,"lng":121.43869,"lat":31.282318},{"M":31.282169,"I":121.438263,"lng":121.438263,"lat":31.282169},{"M":31.281961,"I":121.43779799999999,"lng":121.437798,"lat":31.281961},{"M":31.281788,"I":121.43748499999998,"lng":121.437485,"lat":31.281788},{"M":31.281658,"I":121.43728599999997,"lng":121.437286,"lat":31.281658},{"M":31.281433,"I":121.43699600000002,"lng":121.436996,"lat":31.281433},{"M":31.281128,"I":121.436646,"lng":121.436646,"lat":31.281128},{"M":31.28092,"I":121.43638599999997,"lng":121.436386,"lat":31.28092},{"M":31.280737,"I":121.436195,"lng":121.436195,"lat":31.280737},{"M":31.280552,"I":121.435989,"lng":121.435989,"lat":31.280552},{"M":31.280373,"I":121.43579899999997,"lng":121.435799,"lat":31.280373},{"M":31.280239,"I":121.43566099999998,"lng":121.435661,"lat":31.280239},{"M":31.280012,"I":121.43540999999999,"lng":121.43541,"lat":31.280012},{"M":31.279743,"I":121.43511999999998,"lng":121.43512,"lat":31.279743},{"M":31.279739,"I":121.43511999999998,"lng":121.43512,"lat":31.279739},{"M":31.279192,"I":121.43453199999999,"lng":121.434532,"lat":31.279192},{"M":31.279032,"I":121.434349,"lng":121.434349,"lat":31.279032},{"M":31.279861,"I":121.433716,"lng":121.433716,"lat":31.279861},{"M":31.280117,"I":121.43352500000003,"lng":121.433525,"lat":31.280117},{"M":31.280457,"I":121.43328099999997,"lng":121.433281,"lat":31.280457},{"M":31.281012,"I":121.432884,"lng":121.432884,"lat":31.281012},{"M":31.281189,"I":121.43276200000003,"lng":121.432762,"lat":31.281189},{"M":31.28138,"I":121.43263200000001,"lng":121.432632,"lat":31.28138},{"M":31.281515,"I":121.432549,"lng":121.432549,"lat":31.281515},{"M":31.281723,"I":121.432457,"lng":121.432457,"lat":31.281723},{"M":31.28204,"I":121.432343,"lng":121.432343,"lat":31.28204},{"M":31.282396,"I":121.43225899999999,"lng":121.432259,"lat":31.282396}],"citycode":"021","start_stop":"平凉路大连路","end_stop":"原平路阳城路","stime":"0530","etime":"2300","company":"上海巴士第一公共交通有限公司","distance":"11.87739","basic_price":"2","total_price":"2","bounds":{"hb":{"M":31.252314,"I":121.43225899999999,"lng":121.432259,"lat":31.252314},"ab":{"M":31.289158,"I":121.51711999999998,"lng":121.51712,"lat":31.289158},"southwest":{"M":31.252314,"I":121.43225899999999,"lng":121.432259,"lat":31.252314},"northeast":{"M":31.289158,"I":121.51711999999998,"lng":121.51712,"lat":31.289158}},"via_stops":[{"id":"BV10024898","location":{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314},"name":"平凉路大连路","sequence":1},{"id":"BV10025183","location":{"M":31.25905,"I":121.512291,"lng":121.512291,"lat":31.25905},"name":"大连路长阳路","sequence":2},{"id":"BV10024556","location":{"M":31.263746,"I":121.50775899999996,"lng":121.507759,"lat":31.263746},"name":"大连路周家嘴路","sequence":3},{"id":"BV10024573","location":{"M":31.267653,"I":121.50642399999998,"lng":121.506424,"lat":31.267653},"name":"大连路新港路","sequence":4},{"id":"BV10025184","location":{"M":31.272661,"I":121.504074,"lng":121.504074,"lat":31.272661},"name":"和平公园","sequence":5},{"id":"BV10025185","location":{"M":31.276051,"I":121.499619,"lng":121.499619,"lat":31.276051},"name":"大连西路四平路","sequence":6},{"id":"BV10765226","location":{"M":31.276442,"I":121.494911,"lng":121.494911,"lat":31.276442},"name":"大连西路玉田新村","sequence":7},{"id":"BV10024533","location":{"M":31.276619,"I":121.48791499999999,"lng":121.487915,"lat":31.276619},"name":"大连西路曲阳路","sequence":8},{"id":"BV10025187","location":{"M":31.275101,"I":121.48326099999997,"lng":121.483261,"lat":31.275101},"name":"大连西路东体育会路","sequence":9},{"id":"BV10025164","location":{"M":31.278967,"I":121.47209900000001,"lng":121.472099,"lat":31.278967},"name":"广中路水电路","sequence":10},{"id":"BV10024619","location":{"M":31.280151,"I":121.466591,"lng":121.466591,"lat":31.280151},"name":"广中路广粤路","sequence":11},{"id":"BV10025188","location":{"M":31.279579,"I":121.46012100000002,"lng":121.460121,"lat":31.279579},"name":"广中路平型关路","sequence":12},{"id":"BV10025189","location":{"M":31.279461,"I":121.45391799999999,"lng":121.453918,"lat":31.279461},"name":"广中路共和新路","sequence":13},{"id":"BV10025190","location":{"M":31.284588,"I":121.451775,"lng":121.451775,"lat":31.284588},"name":"共和新路彭江路","sequence":14},{"id":"BV10025093","location":{"M":31.288815,"I":121.44878399999999,"lng":121.448784,"lat":31.288815},"name":"永和路共和新路","sequence":15},{"id":"BV10025094","location":{"M":31.288082,"I":121.44415300000003,"lng":121.444153,"lat":31.288082},"name":"永和路万荣路","sequence":16},{"id":"BV10025095","location":{"M":31.28274,"I":121.44146699999999,"lng":121.441467,"lat":31.28274},"name":"灵石路万荣路","sequence":17},{"id":"BV10025104","location":{"M":31.279743,"I":121.43511999999998,"lng":121.43512,"lat":31.279743},"name":"灵石路原平路","sequence":18},{"id":"BV10029993","location":{"M":31.282396,"I":121.43225899999999,"lng":121.432259,"lat":31.282396},"name":"原平路阳城路","sequence":19}]}]},
+        {"smType":"line","name":"206路","lineInfo":[{"id":"310100014667","type":"普通公交","name":"206路(西康路南京西路--临汾路阳泉路)","path":[{"M":31.22773,"I":121.45230100000003,"lng":121.452301,"lat":31.22773},{"M":31.228312,"I":121.451843,"lng":121.451843,"lat":31.228312},{"M":31.229002,"I":121.45136300000001,"lng":121.451363,"lat":31.229002},{"M":31.229046,"I":121.45131700000002,"lng":121.451317,"lat":31.229046},{"M":31.229805,"I":121.45076799999998,"lng":121.450768,"lat":31.229805},{"M":31.229931,"I":121.45068400000002,"lng":121.450684,"lat":31.229931},{"M":31.230213,"I":121.45055400000001,"lng":121.450554,"lat":31.230213},{"M":31.23036,"I":121.45048500000001,"lng":121.450485,"lat":31.23036},{"M":31.230881,"I":121.45023300000003,"lng":121.450233,"lat":31.230881},{"M":31.231098,"I":121.45011899999997,"lng":121.450119,"lat":31.231098},{"M":31.231194,"I":121.45003500000001,"lng":121.450035,"lat":31.231194},{"M":31.231276,"I":121.44991299999998,"lng":121.449913,"lat":31.231276},{"M":31.231472,"I":121.45034800000002,"lng":121.450348,"lat":31.231472},{"M":31.231562,"I":121.45053899999999,"lng":121.450539,"lat":31.231562},{"M":31.232058,"I":121.45159100000001,"lng":121.451591,"lat":31.232058},{"M":31.23217,"I":121.45185900000001,"lng":121.451859,"lat":31.23217},{"M":31.232218,"I":121.45201099999997,"lng":121.452011,"lat":31.232218},{"M":31.232531,"I":121.45317799999998,"lng":121.453178,"lat":31.232531},{"M":31.2327,"I":121.45369,"lng":121.45369,"lat":31.2327},{"M":31.233303,"I":121.45327800000001,"lng":121.453278,"lat":31.233303},{"M":31.233538,"I":121.45313299999998,"lng":121.453133,"lat":31.233538},{"M":31.234076,"I":121.45272799999998,"lng":121.452728,"lat":31.234076},{"M":31.234426,"I":121.45252199999999,"lng":121.452522,"lat":31.234426},{"M":31.234522,"I":121.45248400000003,"lng":121.452484,"lat":31.234522},{"M":31.234684,"I":121.45236999999997,"lng":121.45237,"lat":31.234684},{"M":31.234987,"I":121.45202599999999,"lng":121.452026,"lat":31.234987},{"M":31.235283,"I":121.45172100000002,"lng":121.451721,"lat":31.235283},{"M":31.235395,"I":121.45157599999999,"lng":121.451576,"lat":31.235395},{"M":31.235603,"I":121.45136300000001,"lng":121.451363,"lat":31.235603},{"M":31.236019,"I":121.45097399999997,"lng":121.450974,"lat":31.236019},{"M":31.236818,"I":121.45023300000003,"lng":121.450233,"lat":31.236818},{"M":31.237131,"I":121.449951,"lng":121.449951,"lat":31.237131},{"M":31.237669,"I":121.44946299999998,"lng":121.449463,"lat":31.237669},{"M":31.237665,"I":121.44946299999998,"lng":121.449463,"lat":31.237665},{"M":31.238476,"I":121.44872299999997,"lng":121.448723,"lat":31.238476},{"M":31.238546,"I":121.44866200000001,"lng":121.448662,"lat":31.238546},{"M":31.238672,"I":121.448578,"lng":121.448578,"lat":31.238672},{"M":31.238724,"I":121.44854700000002,"lng":121.448547,"lat":31.238724},{"M":31.239271,"I":121.448128,"lng":121.448128,"lat":31.239271},{"M":31.239653,"I":121.44777699999997,"lng":121.447777,"lat":31.239653},{"M":31.24017,"I":121.44731100000001,"lng":121.447311,"lat":31.24017},{"M":31.240421,"I":121.44705199999999,"lng":121.447052,"lat":31.240421},{"M":31.241076,"I":121.446327,"lng":121.446327,"lat":31.241076},{"M":31.241436,"I":121.44594599999999,"lng":121.445946,"lat":31.241436},{"M":31.24198,"I":121.44541900000002,"lng":121.445419,"lat":31.24198},{"M":31.241974,"I":121.44541900000002,"lng":121.445419,"lat":31.241974},{"M":31.242874,"I":121.44453399999998,"lng":121.444534,"lat":31.242874},{"M":31.243328,"I":121.44413800000001,"lng":121.444138,"lat":31.243328},{"M":31.24398,"I":121.44357300000001,"lng":121.443573,"lat":31.24398},{"M":31.244093,"I":121.44350400000002,"lng":121.443504,"lat":31.244093},{"M":31.244297,"I":121.44329800000003,"lng":121.443298,"lat":31.244297},{"M":31.244783,"I":121.442856,"lng":121.442856,"lat":31.244783},{"M":31.245165,"I":121.44252,"lng":121.44252,"lat":31.245165},{"M":31.245287,"I":121.44239800000003,"lng":121.442398,"lat":31.245287},{"M":31.245485,"I":121.44223799999997,"lng":121.442238,"lat":31.245485},{"M":31.245617,"I":121.44210800000002,"lng":121.442108,"lat":31.245617},{"M":31.245863,"I":121.44189499999999,"lng":121.441895,"lat":31.245863},{"M":31.246237,"I":121.44155899999998,"lng":121.441559,"lat":31.246237},{"M":31.246233,"I":121.44155899999998,"lng":121.441559,"lat":31.246233},{"M":31.24655,"I":121.441284,"lng":121.441284,"lat":31.24655},{"M":31.246683,"I":121.441147,"lng":121.441147,"lat":31.246683},{"M":31.246876,"I":121.44094100000001,"lng":121.440941,"lat":31.246876},{"M":31.247509,"I":121.440361,"lng":121.440361,"lat":31.247509},{"M":31.247778,"I":121.44012499999997,"lng":121.440125,"lat":31.247778},{"M":31.248077,"I":121.439911,"lng":121.439911,"lat":31.248077},{"M":31.248499,"I":121.43949900000001,"lng":121.439499,"lat":31.248499},{"M":31.248598,"I":121.439392,"lng":121.439392,"lat":31.248598},{"M":31.248642,"I":121.439323,"lng":121.439323,"lat":31.248642},{"M":31.248672,"I":121.43923999999998,"lng":121.43924,"lat":31.248672},{"M":31.248697,"I":121.43916300000001,"lng":121.439163,"lat":31.248697},{"M":31.248714,"I":121.43908699999997,"lng":121.439087,"lat":31.248714},{"M":31.248728,"I":121.438965,"lng":121.438965,"lat":31.248728},{"M":31.248672,"I":121.43680599999999,"lng":121.436806,"lat":31.248672},{"M":31.24872,"I":121.43662999999998,"lng":121.43663,"lat":31.24872},{"M":31.248793,"I":121.43647799999997,"lng":121.436478,"lat":31.248793},{"M":31.24901,"I":121.436218,"lng":121.436218,"lat":31.24901},{"M":31.249214,"I":121.435944,"lng":121.435944,"lat":31.249214},{"M":31.249401,"I":121.435677,"lng":121.435677,"lat":31.249401},{"M":31.249561,"I":121.43540200000001,"lng":121.435402,"lat":31.249561},{"M":31.24968,"I":121.435158,"lng":121.435158,"lat":31.24968},{"M":31.249765,"I":121.43492900000001,"lng":121.434929,"lat":31.249765},{"M":31.249813,"I":121.434776,"lng":121.434776,"lat":31.249813},{"M":31.24984,"I":121.43465400000002,"lng":121.434654,"lat":31.24984},{"M":31.249857,"I":121.43453199999999,"lng":121.434532,"lat":31.249857},{"M":31.249857,"I":121.434418,"lng":121.434418,"lat":31.249857},{"M":31.249853,"I":121.43428799999998,"lng":121.434288,"lat":31.249853},{"M":31.24983,"I":121.43418099999997,"lng":121.434181,"lat":31.24983},{"M":31.249792,"I":121.43404399999997,"lng":121.434044,"lat":31.249792},{"M":31.249718,"I":121.43388400000003,"lng":121.433884,"lat":31.249718},{"M":31.249462,"I":121.43341800000002,"lng":121.433418,"lat":31.249462},{"M":31.249609,"I":121.43335000000002,"lng":121.43335,"lat":31.249609},{"M":31.249714,"I":121.43328099999997,"lng":121.433281,"lat":31.249714},{"M":31.250164,"I":121.43302900000003,"lng":121.433029,"lat":31.250164},{"M":31.250408,"I":121.43289900000002,"lng":121.432899,"lat":31.250408},{"M":31.251358,"I":121.432343,"lng":121.432343,"lat":31.251358},{"M":31.25164,"I":121.43218200000001,"lng":121.432182,"lat":31.25164},{"M":31.252361,"I":121.43185399999999,"lng":121.431854,"lat":31.252361},{"M":31.252773,"I":121.43170199999997,"lng":121.431702,"lat":31.252773},{"M":31.25359,"I":121.431374,"lng":121.431374,"lat":31.25359},{"M":31.25355,"I":121.43128200000001,"lng":121.431282,"lat":31.25355},{"M":31.253389,"I":121.43093899999997,"lng":121.430939,"lat":31.253389},{"M":31.253172,"I":121.43051100000002,"lng":121.430511,"lat":31.253172},{"M":31.252695,"I":121.429642,"lng":121.429642,"lat":31.252695},{"M":31.252222,"I":121.42887100000002,"lng":121.428871,"lat":31.252222},{"M":31.252079,"I":121.428627,"lng":121.428627,"lat":31.252079},{"M":31.252075,"I":121.428627,"lng":121.428627,"lat":31.252075},{"M":31.25149,"I":121.42763500000001,"lng":121.427635,"lat":31.25149},{"M":31.251068,"I":121.426895,"lng":121.426895,"lat":31.251068},{"M":31.250721,"I":121.425903,"lng":121.425903,"lat":31.250721},{"M":31.250715,"I":121.425903,"lng":121.425903,"lat":31.250715},{"M":31.250603,"I":121.425591,"lng":121.425591,"lat":31.250603},{"M":31.250534,"I":121.42539199999999,"lng":121.425392,"lat":31.250534},{"M":31.250443,"I":121.42512499999998,"lng":121.425125,"lat":31.250443},{"M":31.250347,"I":121.42488900000001,"lng":121.424889,"lat":31.250347},{"M":31.249979,"I":121.42416400000002,"lng":121.424164,"lat":31.249979},{"M":31.250977,"I":121.42349999999999,"lng":121.4235,"lat":31.250977},{"M":31.252457,"I":121.42251599999997,"lng":121.422516,"lat":31.252457},{"M":31.252604,"I":121.42244700000003,"lng":121.422447,"lat":31.252604},{"M":31.252892,"I":121.42234000000002,"lng":121.42234,"lat":31.252892},{"M":31.253263,"I":121.42224899999997,"lng":121.422249,"lat":31.253263},{"M":31.253712,"I":121.422165,"lng":121.422165,"lat":31.253712},{"M":31.254189,"I":121.42208900000003,"lng":121.422089,"lat":31.254189},{"M":31.255213,"I":121.42198200000001,"lng":121.421982,"lat":31.255213},{"M":31.255383,"I":121.42195900000002,"lng":121.421959,"lat":31.255383},{"M":31.255812,"I":121.42192799999998,"lng":121.421928,"lat":31.255812},{"M":31.255947,"I":121.42193600000002,"lng":121.421936,"lat":31.255947},{"M":31.257414,"I":121.42206599999997,"lng":121.422066,"lat":31.257414},{"M":31.257696,"I":121.42208900000003,"lng":121.422089,"lat":31.257696},{"M":31.258701,"I":121.422188,"lng":121.422188,"lat":31.258701},{"M":31.25996,"I":121.42230999999998,"lng":121.42231,"lat":31.25996},{"M":31.263063,"I":121.42263000000003,"lng":121.42263,"lat":31.263063},{"M":31.263685,"I":121.42269099999999,"lng":121.422691,"lat":31.263685},{"M":31.264648,"I":121.422775,"lng":121.422775,"lat":31.264648},{"M":31.264753,"I":121.42274500000002,"lng":121.422745,"lat":31.264753},{"M":31.265244,"I":121.42282899999998,"lng":121.422829,"lat":31.265244},{"M":31.265856,"I":121.42289700000003,"lng":121.422897,"lat":31.265856},{"M":31.266306,"I":121.42294300000003,"lng":121.422943,"lat":31.266306},{"M":31.26671,"I":121.42298900000003,"lng":121.422989,"lat":31.26671},{"M":31.266863,"I":121.42300399999999,"lng":121.423004,"lat":31.266863},{"M":31.267509,"I":121.42306500000001,"lng":121.423065,"lat":31.267509},{"M":31.267946,"I":121.42311899999999,"lng":121.423119,"lat":31.267946},{"M":31.268143,"I":121.423157,"lng":121.423157,"lat":31.268143},{"M":31.268438,"I":121.42330900000002,"lng":121.423309,"lat":31.268438},{"M":31.268824,"I":121.423431,"lng":121.423431,"lat":31.268824},{"M":31.269011,"I":121.42355299999997,"lng":121.423553,"lat":31.269011},{"M":31.269184,"I":121.42369100000002,"lng":121.423691,"lat":31.269184},{"M":31.269293,"I":121.42378200000002,"lng":121.423782,"lat":31.269293},{"M":31.269402,"I":121.42388900000003,"lng":121.423889,"lat":31.269402},{"M":31.269592,"I":121.42409499999997,"lng":121.424095,"lat":31.269592},{"M":31.270073,"I":121.424622,"lng":121.424622,"lat":31.270073},{"M":31.270729,"I":121.42539999999997,"lng":121.4254,"lat":31.270729},{"M":31.270964,"I":121.42565200000001,"lng":121.425652,"lat":31.270964},{"M":31.271427,"I":121.42614000000003,"lng":121.42614,"lat":31.271427},{"M":31.271797,"I":121.42663600000003,"lng":121.426636,"lat":31.271797},{"M":31.272566,"I":121.42732999999998,"lng":121.42733,"lat":31.272566},{"M":31.272757,"I":121.427528,"lng":121.427528,"lat":31.272757},{"M":31.2729,"I":121.42773399999999,"lng":121.427734,"lat":31.2729},{"M":31.27375,"I":121.42855099999997,"lng":121.428551,"lat":31.27375},{"M":31.273781,"I":121.42858899999999,"lng":121.428589,"lat":31.273781},{"M":31.274931,"I":121.42974100000004,"lng":121.429741,"lat":31.274931},{"M":31.274969,"I":121.42987099999999,"lng":121.429871,"lat":31.274969},{"M":31.275173,"I":121.43015300000002,"lng":121.430153,"lat":31.275173},{"M":31.275316,"I":121.43031300000001,"lng":121.430313,"lat":31.275316},{"M":31.275574,"I":121.430588,"lng":121.430588,"lat":31.275574},{"M":31.275759,"I":121.43080900000001,"lng":121.430809,"lat":31.275759},{"M":31.276051,"I":121.431129,"lng":121.431129,"lat":31.276051},{"M":31.276377,"I":121.43147299999998,"lng":121.431473,"lat":31.276377},{"M":31.276476,"I":121.43158,"lng":121.43158,"lat":31.276476},{"M":31.27648,"I":121.43158,"lng":121.43158,"lat":31.27648},{"M":31.276476,"I":121.43158,"lng":121.43158,"lat":31.276476},{"M":31.276867,"I":121.43199900000002,"lng":121.431999,"lat":31.276867},{"M":31.277357,"I":121.43253300000003,"lng":121.432533,"lat":31.277357},{"M":31.277552,"I":121.43275499999999,"lng":121.432755,"lat":31.277552},{"M":31.279032,"I":121.434349,"lng":121.434349,"lat":31.279032},{"M":31.279192,"I":121.43453199999999,"lng":121.434532,"lat":31.279192},{"M":31.280012,"I":121.43540999999999,"lng":121.43541,"lat":31.280012},{"M":31.280373,"I":121.43579899999997,"lng":121.435799,"lat":31.280373},{"M":31.280552,"I":121.435989,"lng":121.435989,"lat":31.280552},{"M":31.280737,"I":121.436195,"lng":121.436195,"lat":31.280737},{"M":31.28092,"I":121.43638599999997,"lng":121.436386,"lat":31.28092},{"M":31.281128,"I":121.436646,"lng":121.436646,"lat":31.281128},{"M":31.281433,"I":121.43699600000002,"lng":121.436996,"lat":31.281433},{"M":31.281658,"I":121.43728599999997,"lng":121.437286,"lat":31.281658},{"M":31.281788,"I":121.43748499999998,"lng":121.437485,"lat":31.281788},{"M":31.281961,"I":121.43779799999999,"lng":121.437798,"lat":31.281961},{"M":31.282169,"I":121.438263,"lng":121.438263,"lat":31.282169},{"M":31.282318,"I":121.43869000000001,"lng":121.43869,"lat":31.282318},{"M":31.282404,"I":121.438988,"lng":121.438988,"lat":31.282404},{"M":31.282457,"I":121.43920100000003,"lng":121.439201,"lat":31.282457},{"M":31.28253,"I":121.43962099999999,"lng":121.439621,"lat":31.28253},{"M":31.282608,"I":121.44037600000001,"lng":121.440376,"lat":31.282608},{"M":31.282665,"I":121.44084900000001,"lng":121.440849,"lat":31.282665},{"M":31.28274,"I":121.44146,"lng":121.44146,"lat":31.28274},{"M":31.282887,"I":121.44271100000003,"lng":121.442711,"lat":31.282887},{"M":31.283224,"I":121.44265000000001,"lng":121.44265,"lat":31.283224},{"M":31.283442,"I":121.44264199999998,"lng":121.442642,"lat":31.283442},{"M":31.284016,"I":121.442566,"lng":121.442566,"lat":31.284016},{"M":31.284163,"I":121.442566,"lng":121.442566,"lat":31.284163},{"M":31.28437,"I":121.44253500000002,"lng":121.442535,"lat":31.28437},{"M":31.28487,"I":121.442451,"lng":121.442451,"lat":31.28487},{"M":31.285295,"I":121.44239800000003,"lng":121.442398,"lat":31.285295},{"M":31.285908,"I":121.44231400000001,"lng":121.442314,"lat":31.285908},{"M":31.286711,"I":121.44221500000003,"lng":121.442215,"lat":31.286711},{"M":31.287756,"I":121.44208500000002,"lng":121.442085,"lat":31.287756},{"M":31.287891,"I":121.44295499999998,"lng":121.442955,"lat":31.287891},{"M":31.287939,"I":121.44328300000001,"lng":121.443283,"lat":31.287939},{"M":31.28813,"I":121.444458,"lng":121.444458,"lat":31.28813},{"M":31.288181,"I":121.44486999999998,"lng":121.44487,"lat":31.288181},{"M":31.288263,"I":121.44532800000002,"lng":121.445328,"lat":31.288263},{"M":31.288338,"I":121.445831,"lng":121.445831,"lat":31.288338},{"M":31.288368,"I":121.44595300000003,"lng":121.445953,"lat":31.288368},{"M":31.288454,"I":121.44655599999999,"lng":121.446556,"lat":31.288454},{"M":31.288715,"I":121.448174,"lng":121.448174,"lat":31.288715},{"M":31.288872,"I":121.44918100000001,"lng":121.449181,"lat":31.288872},{"M":31.289114,"I":121.45072900000002,"lng":121.450729,"lat":31.289114},{"M":31.289175,"I":121.45121799999998,"lng":121.451218,"lat":31.289175},{"M":31.290491,"I":121.45093500000002,"lng":121.450935,"lat":31.290491},{"M":31.291428,"I":121.45072900000002,"lng":121.450729,"lat":31.291428},{"M":31.292547,"I":121.45048500000001,"lng":121.450485,"lat":31.292547},{"M":31.29266,"I":121.45033999999998,"lng":121.45034,"lat":31.29266},{"M":31.292856,"I":121.45029399999999,"lng":121.450294,"lat":31.292856},{"M":31.293016,"I":121.45031699999998,"lng":121.450317,"lat":31.293016},{"M":31.293459,"I":121.450264,"lng":121.450264,"lat":31.293459},{"M":31.293455,"I":121.450264,"lng":121.450264,"lat":31.293455},{"M":31.294415,"I":121.45011899999997,"lng":121.450119,"lat":31.294415},{"M":31.295187,"I":121.45005000000003,"lng":121.45005,"lat":31.295187},{"M":31.295864,"I":121.449905,"lng":121.449905,"lat":31.295864},{"M":31.296619,"I":121.44973800000002,"lng":121.449738,"lat":31.296619},{"M":31.296675,"I":121.44966899999997,"lng":121.449669,"lat":31.296675},{"M":31.297539,"I":121.44944800000002,"lng":121.449448,"lat":31.297539},{"M":31.297535,"I":121.449455,"lng":121.449455,"lat":31.297535},{"M":31.297817,"I":121.44937099999999,"lng":121.449371,"lat":31.297817},{"M":31.298407,"I":121.44928700000003,"lng":121.449287,"lat":31.298407},{"M":31.298512,"I":121.44926499999997,"lng":121.449265,"lat":31.298512},{"M":31.29924,"I":121.44923399999999,"lng":121.449234,"lat":31.29924},{"M":31.301506,"I":121.44911200000001,"lng":121.449112,"lat":31.301506},{"M":31.30184,"I":121.449097,"lng":121.449097,"lat":31.30184},{"M":31.302036,"I":121.449097,"lng":121.449097,"lat":31.302036},{"M":31.302353,"I":121.449074,"lng":121.449074,"lat":31.302353},{"M":31.303125,"I":121.44902000000002,"lng":121.44902,"lat":31.303125},{"M":31.303659,"I":121.44898999999998,"lng":121.44899,"lat":31.303659},{"M":31.305763,"I":121.44888300000002,"lng":121.448883,"lat":31.305763},{"M":31.306684,"I":121.448868,"lng":121.448868,"lat":31.306684},{"M":31.306805,"I":121.448868,"lng":121.448868,"lat":31.306805},{"M":31.307529,"I":121.44889799999999,"lng":121.448898,"lat":31.307529},{"M":31.308012,"I":121.44892099999998,"lng":121.448921,"lat":31.308012},{"M":31.308052,"I":121.44977599999999,"lng":121.449776,"lat":31.308052},{"M":31.308073,"I":121.450264,"lng":121.450264,"lat":31.308073},{"M":31.308104,"I":121.45082100000002,"lng":121.450821,"lat":31.308104},{"M":31.308147,"I":121.45134000000002,"lng":121.45134,"lat":31.308147},{"M":31.308182,"I":121.45154600000001,"lng":121.451546,"lat":31.308182},{"M":31.308308,"I":121.452202,"lng":121.452202,"lat":31.308308},{"M":31.308338,"I":121.45243099999999,"lng":121.452431,"lat":31.308338},{"M":31.308359,"I":121.454338,"lng":121.454338,"lat":31.308359},{"M":31.308369,"I":121.45526100000001,"lng":121.455261,"lat":31.308369},{"M":31.308359,"I":121.45886999999999,"lng":121.45887,"lat":31.308359},{"M":31.308363,"I":121.45886999999999,"lng":121.45887,"lat":31.308363},{"M":31.308359,"I":121.45886999999999,"lng":121.45887,"lat":31.308359},{"M":31.308359,"I":121.459946,"lng":121.459946,"lat":31.308359},{"M":31.309206,"I":121.459946,"lng":121.459946,"lat":31.309206},{"M":31.309788,"I":121.459946,"lng":121.459946,"lat":31.309788},{"M":31.310638,"I":121.459946,"lng":121.459946,"lat":31.310638},{"M":31.310778,"I":121.459969,"lng":121.459969,"lat":31.310778},{"M":31.310785,"I":121.46012100000002,"lng":121.460121,"lat":31.310785},{"M":31.310785,"I":121.461525,"lng":121.461525,"lat":31.310785},{"M":31.31079,"I":121.46198700000002,"lng":121.461987,"lat":31.31079},{"M":31.31079,"I":121.46208899999999,"lng":121.462089,"lat":31.31079},{"M":31.310792,"I":121.46221500000001,"lng":121.462215,"lat":31.310792},{"M":31.310712,"I":121.46221300000002,"lng":121.462213,"lat":31.310712}],"citycode":"021","start_stop":"西康路南京西路","end_stop":"临汾路阳泉路","stime":"0505","etime":"2230","company":"上海巴士第五公共交通有限公司","distance":"14.73132","basic_price":"2","total_price":"2","bounds":{"hb":{"M":31.22773,"I":121.42192799999998,"lng":121.421928,"lat":31.22773},"ab":{"M":31.310792,"I":121.46221500000001,"lng":121.462215,"lat":31.310792},"southwest":{"M":31.22773,"I":121.42192799999998,"lng":121.421928,"lat":31.22773},"northeast":{"M":31.310792,"I":121.46221500000001,"lng":121.462215,"lat":31.310792}},"via_stops":[{"id":"BV10025103","location":{"M":31.22773,"I":121.45230100000003,"lng":121.452301,"lat":31.22773},"name":"西康路南京西路","sequence":1},{"id":"BV10030132","location":{"M":31.230213,"I":121.45055400000001,"lng":121.450554,"lat":31.230213},"name":"西康路新闸路","sequence":2},{"id":"BV10024681","location":{"M":31.237669,"I":121.44946299999998,"lng":121.449463,"lat":31.237669},"name":"江宁路海防路","sequence":3},{"id":"BV10025100","location":{"M":31.24198,"I":121.44541900000002,"lng":121.445419,"lat":31.24198},"name":"江宁路安远路","sequence":4},{"id":"BV10024682","location":{"M":31.246237,"I":121.44155899999998,"lng":121.441559,"lat":31.246237},"name":"江宁路澳门路","sequence":5},{"id":"BV10029955","location":{"M":31.252079,"I":121.428627,"lng":121.428627,"lat":31.252079},"name":"石泉路汉阴路","sequence":6},{"id":"BV10030133","location":{"M":31.250721,"I":121.425903,"lng":121.425903,"lat":31.250721},"name":"石泉路岚皋路","sequence":7},{"id":"BV10025099","location":{"M":31.255213,"I":121.42198200000001,"lng":121.421982,"lat":31.255213},"name":"岚皋路华池路","sequence":8},{"id":"BV10025098","location":{"M":31.266863,"I":121.42300399999999,"lng":121.423004,"lat":31.266863},"name":"灵石路新村路","sequence":9},{"id":"BV10025097","location":{"M":31.270964,"I":121.42565200000001,"lng":121.425652,"lat":31.270964},"name":"灵石路平利路","sequence":10},{"id":"BV10025096","location":{"M":31.276476,"I":121.43158,"lng":121.43158,"lat":31.276476},"name":"灵石路沪太路","sequence":11},{"id":"BV10025095","location":{"M":31.282665,"I":121.44084900000001,"lng":121.440849,"lat":31.282665},"name":"灵石路万荣路","sequence":12},{"id":"BV10025094","location":{"M":31.287891,"I":121.44295499999998,"lng":121.442955,"lat":31.287891},"name":"永和路万荣路","sequence":13},{"id":"BV10025093","location":{"M":31.288872,"I":121.44918100000001,"lng":121.449181,"lat":31.288872},"name":"永和路共和新路","sequence":14},{"id":"BV10025191","location":{"M":31.293459,"I":121.450264,"lng":121.450264,"lat":31.293459},"name":"共和新路汶水路","sequence":15},{"id":"BV10025092","location":{"M":31.297539,"I":121.44944800000002,"lng":121.449448,"lat":31.297539},"name":"共和新路江场路","sequence":16},{"id":"BV10024660","location":{"M":31.306684,"I":121.448868,"lng":121.448868,"lat":31.306684},"name":"共和新路闻喜路","sequence":17},{"id":"BV10640372","location":{"M":31.308359,"I":121.45886999999999,"lng":121.45887,"lat":31.308359},"name":"闻喜路阳曲路","sequence":18},{"id":"BV10026046","location":{"M":31.309788,"I":121.459946,"lng":121.459946,"lat":31.309788},"name":"阳曲路临汾路","sequence":19},{"id":"BV10030042","location":{"M":31.310712,"I":121.46221300000002,"lng":121.462213,"lat":31.310712},"name":"临汾路阳泉路","sequence":20}]},{"id":"310100010179","type":"普通公交","name":"206路(临汾路阳泉路--西康路南京西路)","path":[{"M":31.310657,"I":121.46220299999999,"lng":121.462203,"lat":31.310657},{"M":31.310788,"I":121.46225099999998,"lng":121.462251,"lat":31.310788},{"M":31.310797,"I":121.46337,"lng":121.46337,"lat":31.310797},{"M":31.313515,"I":121.46378800000002,"lng":121.463788,"lat":31.313515},{"M":31.313494,"I":121.462624,"lng":121.462624,"lat":31.313494},{"M":31.31349,"I":121.462624,"lng":121.462624,"lat":31.31349},{"M":31.31349,"I":121.46240999999998,"lng":121.46241,"lat":31.31349},{"M":31.31349,"I":121.45995299999998,"lng":121.459953,"lat":31.31349},{"M":31.313486,"I":121.45909899999998,"lng":121.459099,"lat":31.313486},{"M":31.31348,"I":121.45849599999997,"lng":121.458496,"lat":31.31348},{"M":31.31348,"I":121.45818300000002,"lng":121.458183,"lat":31.31348},{"M":31.313477,"I":121.45817599999998,"lng":121.458176,"lat":31.313477},{"M":31.313477,"I":121.45743600000003,"lng":121.457436,"lat":31.313477},{"M":31.313477,"I":121.457222,"lng":121.457222,"lat":31.313477},{"M":31.313477,"I":121.45614599999999,"lng":121.456146,"lat":31.313477},{"M":31.313477,"I":121.45521500000001,"lng":121.455215,"lat":31.313477},{"M":31.313477,"I":121.45520799999997,"lng":121.455208,"lat":31.313477},{"M":31.31329,"I":121.45520799999997,"lng":121.455208,"lat":31.31329},{"M":31.312817,"I":121.45520799999997,"lng":121.455208,"lat":31.312817},{"M":31.310795,"I":121.45523100000003,"lng":121.455231,"lat":31.310795},{"M":31.310789,"I":121.45523100000003,"lng":121.455231,"lat":31.310789},{"M":31.310785,"I":121.45423900000003,"lng":121.454239,"lat":31.310785},{"M":31.310781,"I":121.45423900000003,"lng":121.454239,"lat":31.310781},{"M":31.310781,"I":121.453758,"lng":121.453758,"lat":31.310781},{"M":31.310778,"I":121.452675,"lng":121.452675,"lat":31.310778},{"M":31.310781,"I":121.45239300000003,"lng":121.452393,"lat":31.310781},{"M":31.310778,"I":121.451843,"lng":121.451843,"lat":31.310778},{"M":31.310711,"I":121.44873000000001,"lng":121.44873,"lat":31.310711},{"M":31.310711,"I":121.44847099999998,"lng":121.448471,"lat":31.310711},{"M":31.309921,"I":121.44851699999998,"lng":121.448517,"lat":31.309921},{"M":31.309826,"I":121.44852400000002,"lng":121.448524,"lat":31.309826},{"M":31.30888,"I":121.44856299999998,"lng":121.448563,"lat":31.30888},{"M":31.308876,"I":121.44856299999998,"lng":121.448563,"lat":31.308876},{"M":31.308004,"I":121.44857000000002,"lng":121.44857,"lat":31.308004},{"M":31.307781,"I":121.44866200000001,"lng":121.448662,"lat":31.307781},{"M":31.306787,"I":121.44860799999998,"lng":121.448608,"lat":31.306787},{"M":31.306355,"I":121.44859300000002,"lng":121.448593,"lat":31.306355},{"M":31.306273,"I":121.44863099999998,"lng":121.448631,"lat":31.306273},{"M":31.306028,"I":121.44863900000001,"lng":121.448639,"lat":31.306028},{"M":31.305773,"I":121.44877600000001,"lng":121.448776,"lat":31.305773},{"M":31.305733,"I":121.44877600000001,"lng":121.448776,"lat":31.305733},{"M":31.302822,"I":121.44892099999998,"lng":121.448921,"lat":31.302822},{"M":31.302431,"I":121.44892099999998,"lng":121.448921,"lat":31.302431},{"M":31.302019,"I":121.44894399999998,"lng":121.448944,"lat":31.302019},{"M":31.301706,"I":121.448959,"lng":121.448959,"lat":31.301706},{"M":31.30151,"I":121.448959,"lng":121.448959,"lat":31.30151},{"M":31.300907,"I":121.44898999999998,"lng":121.44899,"lat":31.300907},{"M":31.299271,"I":121.44908099999998,"lng":121.449081,"lat":31.299271},{"M":31.299215,"I":121.44908900000001,"lng":121.449089,"lat":31.299215},{"M":31.298502,"I":121.449165,"lng":121.449165,"lat":31.298502},{"M":31.298393,"I":121.44890599999997,"lng":121.448906,"lat":31.298393},{"M":31.298195,"I":121.44894399999998,"lng":121.448944,"lat":31.298195},{"M":31.297834,"I":121.448868,"lng":121.448868,"lat":31.297834},{"M":31.297062,"I":121.449005,"lng":121.449005,"lat":31.297062},{"M":31.296293,"I":121.449165,"lng":121.449165,"lat":31.296293},{"M":31.296289,"I":121.449165,"lng":121.449165,"lat":31.296289},{"M":31.296051,"I":121.44921899999997,"lng":121.449219,"lat":31.296051},{"M":31.295486,"I":121.449341,"lng":121.449341,"lat":31.295486},{"M":31.294775,"I":121.44949300000002,"lng":121.449493,"lat":31.294775},{"M":31.294544,"I":121.449547,"lng":121.449547,"lat":31.294544},{"M":31.294415,"I":121.449615,"lng":121.449615,"lat":31.294415},{"M":31.294054,"I":121.44969900000001,"lng":121.449699,"lat":31.294054},{"M":31.294003,"I":121.44968399999999,"lng":121.449684,"lat":31.294003},{"M":31.293703,"I":121.44973800000002,"lng":121.449738,"lat":31.293703},{"M":31.293169,"I":121.44986,"lng":121.44986,"lat":31.293169},{"M":31.293056,"I":121.449905,"lng":121.449905,"lat":31.293056},{"M":31.292805,"I":121.449997,"lng":121.449997,"lat":31.292805},{"M":31.292622,"I":121.45003500000001,"lng":121.450035,"lat":31.292622},{"M":31.292301,"I":121.45010400000001,"lng":121.450104,"lat":31.292301},{"M":31.292036,"I":121.45003500000001,"lng":121.450035,"lat":31.292036},{"M":31.290716,"I":121.45033999999998,"lng":121.45034,"lat":31.290716},{"M":31.290281,"I":121.45046200000002,"lng":121.450462,"lat":31.290281},{"M":31.289114,"I":121.45072900000002,"lng":121.450729,"lat":31.289114},{"M":31.288794,"I":121.44866200000001,"lng":121.448662,"lat":31.288794},{"M":31.288797,"I":121.44866200000001,"lng":121.448662,"lat":31.288797},{"M":31.288794,"I":121.44866200000001,"lng":121.448662,"lat":31.288794},{"M":31.288719,"I":121.448174,"lng":121.448174,"lat":31.288719},{"M":31.28846,"I":121.44656399999997,"lng":121.446564,"lat":31.28846},{"M":31.288372,"I":121.44596100000001,"lng":121.445961,"lat":31.288372},{"M":31.288342,"I":121.44583899999998,"lng":121.445839,"lat":31.288342},{"M":31.288269,"I":121.445335,"lng":121.445335,"lat":31.288269},{"M":31.288185,"I":121.44487800000002,"lng":121.444878,"lat":31.288185},{"M":31.288134,"I":121.444458,"lng":121.444458,"lat":31.288134},{"M":31.288082,"I":121.44413800000001,"lng":121.444138,"lat":31.288082},{"M":31.288076,"I":121.44412999999997,"lng":121.44413,"lat":31.288076},{"M":31.287939,"I":121.44328300000001,"lng":121.443283,"lat":31.287939},{"M":31.287756,"I":121.44208500000002,"lng":121.442085,"lat":31.287756},{"M":31.286711,"I":121.44221500000003,"lng":121.442215,"lat":31.286711},{"M":31.285908,"I":121.44231400000001,"lng":121.442314,"lat":31.285908},{"M":31.285295,"I":121.44239800000003,"lng":121.442398,"lat":31.285295},{"M":31.28487,"I":121.442451,"lng":121.442451,"lat":31.28487},{"M":31.28437,"I":121.44253500000002,"lng":121.442535,"lat":31.28437},{"M":31.284163,"I":121.442566,"lng":121.442566,"lat":31.284163},{"M":31.284016,"I":121.442566,"lng":121.442566,"lat":31.284016},{"M":31.283442,"I":121.44264199999998,"lng":121.442642,"lat":31.283442},{"M":31.283224,"I":121.44265000000001,"lng":121.44265,"lat":31.283224},{"M":31.282887,"I":121.44271100000003,"lng":121.442711,"lat":31.282887},{"M":31.28274,"I":121.44146,"lng":121.44146,"lat":31.28274},{"M":31.282734,"I":121.44142199999999,"lng":121.441422,"lat":31.282734},{"M":31.282608,"I":121.44037600000001,"lng":121.440376,"lat":31.282608},{"M":31.28253,"I":121.43962099999999,"lng":121.439621,"lat":31.28253},{"M":31.282457,"I":121.43920100000003,"lng":121.439201,"lat":31.282457},{"M":31.282404,"I":121.438988,"lng":121.438988,"lat":31.282404},{"M":31.282318,"I":121.43869000000001,"lng":121.43869,"lat":31.282318},{"M":31.282169,"I":121.438263,"lng":121.438263,"lat":31.282169},{"M":31.281961,"I":121.43779799999999,"lng":121.437798,"lat":31.281961},{"M":31.281788,"I":121.43748499999998,"lng":121.437485,"lat":31.281788},{"M":31.281658,"I":121.43728599999997,"lng":121.437286,"lat":31.281658},{"M":31.281433,"I":121.43699600000002,"lng":121.436996,"lat":31.281433},{"M":31.281128,"I":121.436646,"lng":121.436646,"lat":31.281128},{"M":31.28092,"I":121.43638599999997,"lng":121.436386,"lat":31.28092},{"M":31.280737,"I":121.436195,"lng":121.436195,"lat":31.280737},{"M":31.280552,"I":121.435989,"lng":121.435989,"lat":31.280552},{"M":31.280373,"I":121.43579899999997,"lng":121.435799,"lat":31.280373},{"M":31.280012,"I":121.43540999999999,"lng":121.43541,"lat":31.280012},{"M":31.279766,"I":121.43514299999998,"lng":121.435143,"lat":31.279766},{"M":31.279192,"I":121.43453199999999,"lng":121.434532,"lat":31.279192},{"M":31.279032,"I":121.434349,"lng":121.434349,"lat":31.279032},{"M":31.277552,"I":121.43275499999999,"lng":121.432755,"lat":31.277552},{"M":31.277357,"I":121.43253300000003,"lng":121.432533,"lat":31.277357},{"M":31.276867,"I":121.43199900000002,"lng":121.431999,"lat":31.276867},{"M":31.276377,"I":121.43147299999998,"lng":121.431473,"lat":31.276377},{"M":31.276051,"I":121.431129,"lng":121.431129,"lat":31.276051},{"M":31.275833,"I":121.43088499999999,"lng":121.430885,"lat":31.275833},{"M":31.275829,"I":121.43088499999999,"lng":121.430885,"lat":31.275829},{"M":31.275759,"I":121.43080900000001,"lng":121.430809,"lat":31.275759},{"M":31.275574,"I":121.430588,"lng":121.430588,"lat":31.275574},{"M":31.275316,"I":121.43031300000001,"lng":121.430313,"lat":31.275316},{"M":31.275173,"I":121.43015300000002,"lng":121.430153,"lat":31.275173},{"M":31.274969,"I":121.42987099999999,"lng":121.429871,"lat":31.274969},{"M":31.274931,"I":121.42974100000004,"lng":121.429741,"lat":31.274931},{"M":31.273781,"I":121.42858899999999,"lng":121.428589,"lat":31.273781},{"M":31.27375,"I":121.42855099999997,"lng":121.428551,"lat":31.27375},{"M":31.2729,"I":121.42773399999999,"lng":121.427734,"lat":31.2729},{"M":31.272757,"I":121.427528,"lng":121.427528,"lat":31.272757},{"M":31.272566,"I":121.42732999999998,"lng":121.42733,"lat":31.272566},{"M":31.271797,"I":121.42663600000003,"lng":121.426636,"lat":31.271797},{"M":31.271427,"I":121.42614000000003,"lng":121.42614,"lat":31.271427},{"M":31.27079,"I":121.42546800000002,"lng":121.425468,"lat":31.27079},{"M":31.270729,"I":121.42539999999997,"lng":121.4254,"lat":31.270729},{"M":31.270073,"I":121.424622,"lng":121.424622,"lat":31.270073},{"M":31.269592,"I":121.42409499999997,"lng":121.424095,"lat":31.269592},{"M":31.269402,"I":121.42388900000003,"lng":121.423889,"lat":31.269402},{"M":31.269293,"I":121.42378200000002,"lng":121.423782,"lat":31.269293},{"M":31.269184,"I":121.42369100000002,"lng":121.423691,"lat":31.269184},{"M":31.269011,"I":121.42355299999997,"lng":121.423553,"lat":31.269011},{"M":31.268824,"I":121.423431,"lng":121.423431,"lat":31.268824},{"M":31.268438,"I":121.42330900000002,"lng":121.423309,"lat":31.268438},{"M":31.268143,"I":121.423157,"lng":121.423157,"lat":31.268143},{"M":31.267946,"I":121.42311899999999,"lng":121.423119,"lat":31.267946},{"M":31.267509,"I":121.42306500000001,"lng":121.423065,"lat":31.267509},{"M":31.267305,"I":121.42303500000003,"lng":121.423035,"lat":31.267305},{"M":31.266714,"I":121.42298900000003,"lng":121.422989,"lat":31.266714},{"M":31.266312,"I":121.42295100000001,"lng":121.422951,"lat":31.266312},{"M":31.26586,"I":121.42289700000003,"lng":121.422897,"lat":31.26586},{"M":31.264748,"I":121.42278299999998,"lng":121.422783,"lat":31.264748},{"M":31.264652,"I":121.422729,"lng":121.422729,"lat":31.264652},{"M":31.262886,"I":121.42255399999999,"lng":121.422554,"lat":31.262886},{"M":31.262783,"I":121.42253099999999,"lng":121.422531,"lat":31.262783},{"M":31.261284,"I":121.42238600000002,"lng":121.422386,"lat":31.261284},{"M":31.259974,"I":121.422256,"lng":121.422256,"lat":31.259974},{"M":31.258711,"I":121.42211900000001,"lng":121.422119,"lat":31.258711},{"M":31.258663,"I":121.42211900000001,"lng":121.422119,"lat":31.258663},{"M":31.25769,"I":121.42200500000001,"lng":121.422005,"lat":31.25769},{"M":31.257425,"I":121.42198200000001,"lng":121.421982,"lat":31.257425},{"M":31.255833,"I":121.421944,"lng":121.421944,"lat":31.255833},{"M":31.255777,"I":121.42193600000002,"lng":121.421936,"lat":31.255777},{"M":31.255533,"I":121.42192799999998,"lng":121.421928,"lat":31.255533},{"M":31.255182,"I":121.42192799999998,"lng":121.421928,"lat":31.255182},{"M":31.254852,"I":121.42195900000002,"lng":121.421959,"lat":31.254852},{"M":31.254604,"I":121.42198200000001,"lng":121.421982,"lat":31.254604},{"M":31.254379,"I":121.42199700000003,"lng":121.421997,"lat":31.254379},{"M":31.254179,"I":121.42202800000001,"lng":121.422028,"lat":31.254179},{"M":31.253746,"I":121.42208099999999,"lng":121.422081,"lat":31.253746},{"M":31.25342,"I":121.42212699999999,"lng":121.422127,"lat":31.25342},{"M":31.253155,"I":121.42218000000003,"lng":121.42218,"lat":31.253155},{"M":31.252855,"I":121.42227200000002,"lng":121.422272,"lat":31.252855},{"M":31.252518,"I":121.422394,"lng":121.422394,"lat":31.252518},{"M":31.252417,"I":121.42244700000003,"lng":121.422447,"lat":31.252417},{"M":31.252035,"I":121.422707,"lng":121.422707,"lat":31.252035},{"M":31.252028,"I":121.422707,"lng":121.422707,"lat":31.252028},{"M":31.251841,"I":121.42282899999998,"lng":121.422829,"lat":31.251841},{"M":31.250872,"I":121.42347000000001,"lng":121.42347,"lat":31.250872},{"M":31.25053,"I":121.423698,"lng":121.423698,"lat":31.25053},{"M":31.249952,"I":121.42409499999997,"lng":121.424095,"lat":31.249952},{"M":31.248993,"I":121.424667,"lng":121.424667,"lat":31.248993},{"M":31.248816,"I":121.42477400000001,"lng":121.424774,"lat":31.248816},{"M":31.248295,"I":121.42508700000002,"lng":121.425087,"lat":31.248295},{"M":31.248098,"I":121.42520100000002,"lng":121.425201,"lat":31.248098},{"M":31.247948,"I":121.42529300000001,"lng":121.425293,"lat":31.247948},{"M":31.247343,"I":121.425659,"lng":121.425659,"lat":31.247343},{"M":31.246798,"I":121.425972,"lng":121.425972,"lat":31.246798},{"M":31.24645,"I":121.42621600000001,"lng":121.426216,"lat":31.24645},{"M":31.245981,"I":121.426491,"lng":121.426491,"lat":31.245981},{"M":31.245729,"I":121.42663600000003,"lng":121.426636,"lat":31.245729},{"M":31.245536,"I":121.426807,"lng":121.426807,"lat":31.245536},{"M":31.245651,"I":121.42713400000002,"lng":121.427134,"lat":31.245651},{"M":31.245912,"I":121.427816,"lng":121.427816,"lat":31.245912},{"M":31.246032,"I":121.428089,"lng":121.428089,"lat":31.246032},{"M":31.246279,"I":121.42857700000002,"lng":121.428577,"lat":31.246279},{"M":31.246366,"I":121.42875400000003,"lng":121.428754,"lat":31.246366},{"M":31.246587,"I":121.429125,"lng":121.429125,"lat":31.246587},{"M":31.246696,"I":121.429306,"lng":121.429306,"lat":31.246696},{"M":31.246857,"I":121.42955,"lng":121.42955,"lat":31.246857},{"M":31.24721,"I":121.42996199999999,"lng":121.429962,"lat":31.24721},{"M":31.247499,"I":121.43025999999998,"lng":121.43026,"lat":31.247499},{"M":31.247894,"I":121.43058400000001,"lng":121.430584,"lat":31.247894},{"M":31.247949,"I":121.430632,"lng":121.430632,"lat":31.247949},{"M":31.248085,"I":121.43076300000001,"lng":121.430763,"lat":31.248085},{"M":31.248295,"I":121.430923,"lng":121.430923,"lat":31.248295},{"M":31.248564,"I":121.43114500000001,"lng":121.431145,"lat":31.248564},{"M":31.248737,"I":121.43130500000001,"lng":121.431305,"lat":31.248737},{"M":31.249132,"I":121.43170199999997,"lng":121.431702,"lat":31.249132},{"M":31.249275,"I":121.43185399999999,"lng":121.431854,"lat":31.249275},{"M":31.249271,"I":121.43185399999999,"lng":121.431854,"lat":31.249271},{"M":31.249323,"I":121.43190800000002,"lng":121.431908,"lat":31.249323},{"M":31.249527,"I":121.43216699999999,"lng":121.432167,"lat":31.249527},{"M":31.250099,"I":121.43293799999998,"lng":121.432938,"lat":31.250099},{"M":31.249657,"I":121.43320499999999,"lng":121.433205,"lat":31.249657},{"M":31.249548,"I":121.43327299999999,"lng":121.433273,"lat":31.249548},{"M":31.249428,"I":121.43335000000002,"lng":121.43335,"lat":31.249428},{"M":31.249397,"I":121.433403,"lng":121.433403,"lat":31.249397},{"M":31.249432,"I":121.433472,"lng":121.433472,"lat":31.249432},{"M":31.249588,"I":121.43374599999999,"lng":121.433746,"lat":31.249588},{"M":31.249739,"I":121.43405899999999,"lng":121.434059,"lat":31.249739},{"M":31.249779,"I":121.43419599999999,"lng":121.434196,"lat":31.249779},{"M":31.249805,"I":121.43442500000003,"lng":121.434425,"lat":31.249805},{"M":31.249805,"I":121.43452500000001,"lng":121.434525,"lat":31.249805},{"M":31.249792,"I":121.434639,"lng":121.434639,"lat":31.249792},{"M":31.249765,"I":121.434753,"lng":121.434753,"lat":31.249765},{"M":31.249718,"I":121.43490600000001,"lng":121.434906,"lat":31.249718},{"M":31.249632,"I":121.43511999999998,"lng":121.43512,"lat":31.249632},{"M":31.249517,"I":121.43536399999999,"lng":121.435364,"lat":31.249517},{"M":31.249361,"I":121.43564600000002,"lng":121.435646,"lat":31.249361},{"M":31.249176,"I":121.43590499999999,"lng":121.435905,"lat":31.249176},{"M":31.248976,"I":121.43617999999998,"lng":121.43618,"lat":31.248976},{"M":31.248758,"I":121.43642399999999,"lng":121.436424,"lat":31.248758},{"M":31.248676,"I":121.43660699999998,"lng":121.436607,"lat":31.248676},{"M":31.248619,"I":121.43678999999997,"lng":121.43679,"lat":31.248619},{"M":31.248615,"I":121.43678999999997,"lng":121.43679,"lat":31.248615},{"M":31.248676,"I":121.43895700000002,"lng":121.438957,"lat":31.248676},{"M":31.248667,"I":121.43907899999999,"lng":121.439079,"lat":31.248667},{"M":31.248629,"I":121.43921699999999,"lng":121.439217,"lat":31.248629},{"M":31.24856,"I":121.43933900000002,"lng":121.439339,"lat":31.24856},{"M":31.248516,"I":121.439392,"lng":121.439392,"lat":31.248516},{"M":31.248081,"I":121.439819,"lng":121.439819,"lat":31.248081},{"M":31.247751,"I":121.44006300000001,"lng":121.440063,"lat":31.247751},{"M":31.247486,"I":121.440315,"lng":121.440315,"lat":31.247486},{"M":31.247417,"I":121.44037600000001,"lng":121.440376,"lat":31.247417},{"M":31.246679,"I":121.441078,"lng":121.441078,"lat":31.246679},{"M":31.245934,"I":121.441757,"lng":121.441757,"lat":31.245934},{"M":31.24593,"I":121.441757,"lng":121.441757,"lat":31.24593},{"M":31.245825,"I":121.44184100000001,"lng":121.441841,"lat":31.245825},{"M":31.245461,"I":121.44216900000004,"lng":121.442169,"lat":31.245461},{"M":31.245134,"I":121.44245899999999,"lng":121.442459,"lat":31.245134},{"M":31.244753,"I":121.44278700000001,"lng":121.442787,"lat":31.244753},{"M":31.244246,"I":121.44324499999999,"lng":121.443245,"lat":31.244246},{"M":31.24408,"I":121.44342,"lng":121.44342,"lat":31.24408},{"M":31.24398,"I":121.44357300000001,"lng":121.443573,"lat":31.24398},{"M":31.243334,"I":121.44412999999997,"lng":121.44413,"lat":31.243334},{"M":31.242878,"I":121.44453399999998,"lng":121.444534,"lat":31.242878},{"M":31.24234,"I":121.44505300000003,"lng":121.445053,"lat":31.24234},{"M":31.241442,"I":121.44593800000001,"lng":121.445938,"lat":31.241442},{"M":31.241081,"I":121.44632000000001,"lng":121.44632,"lat":31.241081},{"M":31.240425,"I":121.44705199999999,"lng":121.447052,"lat":31.240425},{"M":31.240173,"I":121.44730400000003,"lng":121.447304,"lat":31.240173},{"M":31.239656,"I":121.44777699999997,"lng":121.447777,"lat":31.239656},{"M":31.239275,"I":121.448128,"lng":121.448128,"lat":31.239275},{"M":31.238728,"I":121.44853999999998,"lng":121.44854,"lat":31.238728},{"M":31.238676,"I":121.448578,"lng":121.448578,"lat":31.238676},{"M":31.23855,"I":121.44866200000001,"lng":121.448662,"lat":31.23855},{"M":31.238482,"I":121.44871499999999,"lng":121.448715,"lat":31.238482},{"M":31.23826,"I":121.44892099999998,"lng":121.448921,"lat":31.23826},{"M":31.237135,"I":121.449951,"lng":121.449951,"lat":31.237135},{"M":31.236822,"I":121.45022599999999,"lng":121.450226,"lat":31.236822},{"M":31.236025,"I":121.450966,"lng":121.450966,"lat":31.236025},{"M":31.235607,"I":121.45135500000004,"lng":121.451355,"lat":31.235607},{"M":31.235399,"I":121.45157599999999,"lng":121.451576,"lat":31.235399},{"M":31.235287,"I":121.45171399999998,"lng":121.451714,"lat":31.235287},{"M":31.234991,"I":121.45201099999997,"lng":121.452011,"lat":31.234991},{"M":31.234688,"I":121.452362,"lng":121.452362,"lat":31.234688},{"M":31.234528,"I":121.45248400000003,"lng":121.452484,"lat":31.234528},{"M":31.234432,"I":121.452515,"lng":121.452515,"lat":31.234432},{"M":31.234079,"I":121.45272799999998,"lng":121.452728,"lat":31.234079},{"M":31.233541,"I":121.453125,"lng":121.453125,"lat":31.233541},{"M":31.233307,"I":121.45327800000001,"lng":121.453278,"lat":31.233307},{"M":31.232704,"I":121.45369,"lng":121.45369,"lat":31.232704},{"M":31.2327,"I":121.45369,"lng":121.45369,"lat":31.2327},{"M":31.232534,"I":121.45317799999998,"lng":121.453178,"lat":31.232534},{"M":31.232504,"I":121.45306399999998,"lng":121.453064,"lat":31.232504},{"M":31.2325,"I":121.453056,"lng":121.453056,"lat":31.2325},{"M":31.232222,"I":121.45202599999999,"lng":121.452026,"lat":31.232222},{"M":31.232218,"I":121.45201099999997,"lng":121.452011,"lat":31.232218},{"M":31.232126,"I":121.45204899999999,"lng":121.452049,"lat":31.232126},{"M":31.232006,"I":121.45211,"lng":121.45211,"lat":31.232006},{"M":31.23102,"I":121.45263699999998,"lng":121.452637,"lat":31.23102},{"M":31.230604,"I":121.45286599999997,"lng":121.452866,"lat":31.230604},{"M":31.230387,"I":121.45297199999999,"lng":121.452972,"lat":31.230387},{"M":31.230381,"I":121.45297199999999,"lng":121.452972,"lat":31.230381},{"M":31.230333,"I":121.452988,"lng":121.452988,"lat":31.230333},{"M":31.229639,"I":121.45320900000002,"lng":121.453209,"lat":31.229639},{"M":31.229584,"I":121.45324700000003,"lng":121.453247,"lat":31.229584},{"M":31.229353,"I":121.453438,"lng":121.453438,"lat":31.229353},{"M":31.228815,"I":121.453934,"lng":121.453934,"lat":31.228815},{"M":31.228506,"I":121.45429999999999,"lng":121.4543,"lat":31.228506},{"M":31.228251,"I":121.45451400000002,"lng":121.454514,"lat":31.228251},{"M":31.228086,"I":121.45462800000001,"lng":121.454628,"lat":31.228086},{"M":31.227896,"I":121.45474200000001,"lng":121.454742,"lat":31.227896},{"M":31.227322,"I":121.45504,"lng":121.45504,"lat":31.227322},{"M":31.227318,"I":121.45504,"lng":121.45504,"lat":31.227318},{"M":31.227226,"I":121.45442200000002,"lng":121.454422,"lat":31.227226},{"M":31.227226,"I":121.45425399999999,"lng":121.454254,"lat":31.227226},{"M":31.227219,"I":121.45413200000002,"lng":121.454132,"lat":31.227219},{"M":31.227171,"I":121.45384200000001,"lng":121.453842,"lat":31.227171},{"M":31.227093,"I":121.45355999999998,"lng":121.45356,"lat":31.227093},{"M":31.227018,"I":121.45338400000003,"lng":121.453384,"lat":31.227018},{"M":31.226957,"I":121.45324700000003,"lng":121.453247,"lat":31.226957},{"M":31.226818,"I":121.45300299999997,"lng":121.453003,"lat":31.226818},{"M":31.227556,"I":121.45243800000003,"lng":121.452438,"lat":31.227556},{"M":31.227682,"I":121.45234700000003,"lng":121.452347,"lat":31.227682},{"M":31.227757,"I":121.452271,"lng":121.452271,"lat":31.227757}],"citycode":"021","start_stop":"临汾路阳泉路","end_stop":"西康路南京西路","stime":"0500","etime":"2230","company":"上海巴士第五公共交通有限公司","distance":"16.04956","basic_price":"2","total_price":"2","bounds":{"hb":{"M":31.226818,"I":121.42192799999998,"lng":121.421928,"lat":31.226818},"ab":{"M":31.313515,"I":121.46378800000002,"lng":121.463788,"lat":31.313515},"southwest":{"M":31.226818,"I":121.42192799999998,"lng":121.421928,"lat":31.226818},"northeast":{"M":31.313515,"I":121.46378800000002,"lng":121.463788,"lat":31.313515}},"via_stops":[{"id":"BV10030042","location":{"M":31.310657,"I":121.46220299999999,"lng":121.462203,"lat":31.310657},"name":"临汾路阳泉路","sequence":1},{"id":"BV10025105","location":{"M":31.313494,"I":121.462624,"lng":121.462624,"lat":31.313494},"name":"汾西路阳泉路","sequence":2},{"id":"BV10025090","location":{"M":31.31348,"I":121.45818300000002,"lng":121.458183,"lat":31.31348},"name":"汾西路阳曲路","sequence":3},{"id":"BV10025091","location":{"M":31.310785,"I":121.45423900000003,"lng":121.454239,"lat":31.310785},"name":"临汾路平顺路","sequence":4},{"id":"BV10024660","location":{"M":31.30888,"I":121.44856299999998,"lng":121.448563,"lat":31.30888},"name":"共和新路闻喜路","sequence":5},{"id":"BV10025092","location":{"M":31.296293,"I":121.449165,"lng":121.449165,"lat":31.296293},"name":"共和新路江场路","sequence":6},{"id":"BV10025093","location":{"M":31.288794,"I":121.44866200000001,"lng":121.448662,"lat":31.288794},"name":"永和路共和新路","sequence":7},{"id":"BV10025094","location":{"M":31.288082,"I":121.44413800000001,"lng":121.444138,"lat":31.288082},"name":"永和路万荣路","sequence":8},{"id":"BV10025095","location":{"M":31.282734,"I":121.44142199999999,"lng":121.441422,"lat":31.282734},"name":"灵石路万荣路","sequence":9},{"id":"BV10025104","location":{"M":31.279766,"I":121.43514299999998,"lng":121.435143,"lat":31.279766},"name":"灵石路原平路","sequence":10},{"id":"BV10025096","location":{"M":31.275833,"I":121.43088499999999,"lng":121.430885,"lat":31.275833},"name":"灵石路沪太路","sequence":11},{"id":"BV10025097","location":{"M":31.27079,"I":121.42546800000002,"lng":121.425468,"lat":31.27079},"name":"灵石路平利路","sequence":12},{"id":"BV10025098","location":{"M":31.267305,"I":121.42303500000003,"lng":121.423035,"lat":31.267305},"name":"灵石路新村路","sequence":13},{"id":"BV10025099","location":{"M":31.252035,"I":121.422707,"lng":121.422707,"lat":31.252035},"name":"岚皋路华池路","sequence":14},{"id":"BV10383817","location":{"M":31.248816,"I":121.42477400000001,"lng":121.424774,"lat":31.248816},"name":"岚皋路中山北路","sequence":15},{"id":"BV10024798","location":{"M":31.249275,"I":121.43185399999999,"lng":121.431854,"lat":31.249275},"name":"中山北路光新路","sequence":16},{"id":"BV10024682","location":{"M":31.245934,"I":121.441757,"lng":121.441757,"lat":31.245934},"name":"江宁路澳门路","sequence":17},{"id":"BV10025100","location":{"M":31.24234,"I":121.44505300000003,"lng":121.445053,"lat":31.24234},"name":"江宁路安远路","sequence":18},{"id":"BV10024681","location":{"M":31.23826,"I":121.44892099999998,"lng":121.448921,"lat":31.23826},"name":"江宁路海防路","sequence":19},{"id":"BV10025101","location":{"M":31.232504,"I":121.45306399999998,"lng":121.453064,"lat":31.232504},"name":"新闸路江宁路","sequence":20},{"id":"BV10025102","location":{"M":31.230387,"I":121.45297199999999,"lng":121.452972,"lat":31.230387},"name":"陕西北路北京西路","sequence":21},{"id":"BV10025103","location":{"M":31.227757,"I":121.452271,"lng":121.452271,"lat":31.227757},"name":"西康路南京西路","sequence":22}]}]}];
+    var collectionDemo = {lines: [{lineInfo:[{"id":"310100014941","direction":"0","type":"普通公交","name":"79路(平凉路大连路--原平路阳城路)","path":[{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314},{"M":31.252743,"I":121.51686899999999,"lng":121.516869,"lat":31.252743},{"M":31.252892,"I":121.51711999999998,"lng":121.51712,"lat":31.252892},{"M":31.253012,"I":121.517067,"lng":121.517067,"lat":31.253012},{"M":31.253273,"I":121.51687600000002,"lng":121.516876,"lat":31.253273},{"M":31.254045,"I":121.51631900000001,"lng":121.516319,"lat":31.254045},{"M":31.255156,"I":121.51554899999996,"lng":121.515549,"lat":31.255156},{"M":31.255339,"I":121.51542699999999,"lng":121.515427,"lat":31.255339},{"M":31.25543,"I":121.515289,"lng":121.515289,"lat":31.25543},{"M":31.25671,"I":121.514389,"lng":121.514389,"lat":31.25671},{"M":31.257677,"I":121.51350400000001,"lng":121.513504,"lat":31.257677},{"M":31.258013,"I":121.51322900000002,"lng":121.513229,"lat":31.258013},{"M":31.258095,"I":121.51316099999997,"lng":121.513161,"lat":31.258095},{"M":31.258963,"I":121.51236,"lng":121.51236,"lat":31.258963},{"M":31.25905,"I":121.512291,"lng":121.512291,"lat":31.25905},{"M":31.259588,"I":121.51182599999999,"lng":121.511826,"lat":31.259588},{"M":31.259775,"I":121.511665,"lng":121.511665,"lat":31.259775},{"M":31.260504,"I":121.510986,"lng":121.510986,"lat":31.260504},{"M":31.260677,"I":121.51083399999999,"lng":121.510834,"lat":31.260677},{"M":31.260864,"I":121.51064300000002,"lng":121.510643,"lat":31.260864},{"M":31.261051,"I":121.51045199999999,"lng":121.510452,"lat":31.261051},{"M":31.261229,"I":121.51023099999998,"lng":121.510231,"lat":31.261229},{"M":31.262297,"I":121.509026,"lng":121.509026,"lat":31.262297},{"M":31.26263,"I":121.50862899999998,"lng":121.508629,"lat":31.26263},{"M":31.262747,"I":121.50849900000003,"lng":121.508499,"lat":31.262747},{"M":31.262865,"I":121.508377,"lng":121.508377,"lat":31.262865},{"M":31.263086,"I":121.508194,"lng":121.508194,"lat":31.263086},{"M":31.263746,"I":121.50775899999996,"lng":121.507759,"lat":31.263746},{"M":31.264488,"I":121.50730099999998,"lng":121.507301,"lat":31.264488},{"M":31.264652,"I":121.50718699999999,"lng":121.507187,"lat":31.264652},{"M":31.264832,"I":121.50706500000001,"lng":121.507065,"lat":31.264832},{"M":31.265022,"I":121.50694299999998,"lng":121.506943,"lat":31.265022},{"M":31.26523,"I":121.506821,"lng":121.506821,"lat":31.26523},{"M":31.265308,"I":121.50678299999998,"lng":121.506783,"lat":31.265308},{"M":31.265495,"I":121.50668300000001,"lng":121.506683,"lat":31.265495},{"M":31.265699,"I":121.506599,"lng":121.506599,"lat":31.265699},{"M":31.265928,"I":121.50651600000003,"lng":121.506516,"lat":31.265928},{"M":31.266272,"I":121.506462,"lng":121.506462,"lat":31.266272},{"M":31.266407,"I":121.50642399999998,"lng":121.506424,"lat":31.266407},{"M":31.266523,"I":121.506416,"lng":121.506416,"lat":31.266523},{"M":31.266588,"I":121.506416,"lng":121.506416,"lat":31.266588},{"M":31.266645,"I":121.50640900000002,"lng":121.506409,"lat":31.266645},{"M":31.267105,"I":121.50640900000002,"lng":121.506409,"lat":31.267105},{"M":31.267221,"I":121.506416,"lng":121.506416,"lat":31.267221},{"M":31.267653,"I":121.50642399999998,"lng":121.506424,"lat":31.267653},{"M":31.26766,"I":121.50642399999998,"lng":121.506424,"lat":31.26766},{"M":31.268061,"I":121.506439,"lng":121.506439,"lat":31.268061},{"M":31.268381,"I":121.506462,"lng":121.506462,"lat":31.268381},{"M":31.268623,"I":121.506462,"lng":121.506462,"lat":31.268623},{"M":31.268803,"I":121.506462,"lng":121.506462,"lat":31.268803},{"M":31.269466,"I":121.50649299999998,"lng":121.506493,"lat":31.269466},{"M":31.26967,"I":121.506508,"lng":121.506508,"lat":31.26967},{"M":31.270039,"I":121.506531,"lng":121.506531,"lat":31.270039},{"M":31.270464,"I":121.50656100000003,"lng":121.506561,"lat":31.270464},{"M":31.270535,"I":121.50656100000003,"lng":121.506561,"lat":31.270535},{"M":31.270586,"I":121.50654600000001,"lng":121.506546,"lat":31.270586},{"M":31.270664,"I":121.50647700000002,"lng":121.506477,"lat":31.270664},{"M":31.271416,"I":121.50559199999998,"lng":121.505592,"lat":31.271416},{"M":31.271641,"I":121.50531799999999,"lng":121.505318,"lat":31.271641},{"M":31.272257,"I":121.504547,"lng":121.504547,"lat":31.272257},{"M":31.272356,"I":121.50442499999997,"lng":121.504425,"lat":31.272356},{"M":31.272661,"I":121.504074,"lng":121.504074,"lat":31.272661},{"M":31.272938,"I":121.50375400000001,"lng":121.503754,"lat":31.272938},{"M":31.273458,"I":121.50308999999999,"lng":121.50309,"lat":31.273458},{"M":31.273958,"I":121.50249500000001,"lng":121.502495,"lat":31.273958},{"M":31.273998,"I":121.50244900000001,"lng":121.502449,"lat":31.273998},{"M":31.274223,"I":121.502182,"lng":121.502182,"lat":31.274223},{"M":31.274588,"I":121.50176199999999,"lng":121.501762,"lat":31.274588},{"M":31.274792,"I":121.50152600000001,"lng":121.501526,"lat":31.274792},{"M":31.274904,"I":121.50138900000002,"lng":121.501389,"lat":31.274904},{"M":31.275269,"I":121.500969,"lng":121.500969,"lat":31.275269},{"M":31.275391,"I":121.50081599999999,"lng":121.500816,"lat":31.275391},{"M":31.275595,"I":121.50054899999998,"lng":121.500549,"lat":31.275595},{"M":31.275894,"I":121.49999200000002,"lng":121.499992,"lat":31.275894},{"M":31.275999,"I":121.49975599999999,"lng":121.499756,"lat":31.275999},{"M":31.276051,"I":121.499619,"lng":121.499619,"lat":31.276051},{"M":31.276129,"I":121.499413,"lng":121.499413,"lat":31.276129},{"M":31.276237,"I":121.499031,"lng":121.499031,"lat":31.276237},{"M":31.276302,"I":121.498764,"lng":121.498764,"lat":31.276302},{"M":31.27634,"I":121.49855000000002,"lng":121.49855,"lat":31.27634},{"M":31.276377,"I":121.498245,"lng":121.498245,"lat":31.276377},{"M":31.276388,"I":121.49804699999999,"lng":121.498047,"lat":31.276388},{"M":31.276405,"I":121.49766499999998,"lng":121.497665,"lat":31.276405},{"M":31.276398,"I":121.49655899999999,"lng":121.496559,"lat":31.276398},{"M":31.276415,"I":121.495972,"lng":121.495972,"lat":31.276415},{"M":31.276432,"I":121.49522400000001,"lng":121.495224,"lat":31.276432},{"M":31.276442,"I":121.494911,"lng":121.494911,"lat":31.276442},{"M":31.276449,"I":121.49456800000002,"lng":121.494568,"lat":31.276449},{"M":31.276459,"I":121.49409500000002,"lng":121.494095,"lat":31.276459},{"M":31.276476,"I":121.49338499999999,"lng":121.493385,"lat":31.276476},{"M":31.27648,"I":121.49323300000003,"lng":121.493233,"lat":31.27648},{"M":31.276489,"I":121.49294299999997,"lng":121.492943,"lat":31.276489},{"M":31.276514,"I":121.49163099999998,"lng":121.491631,"lat":31.276514},{"M":31.276545,"I":121.49054699999999,"lng":121.490547,"lat":31.276545},{"M":31.27655,"I":121.490433,"lng":121.490433,"lat":31.27655},{"M":31.276567,"I":121.48973799999999,"lng":121.489738,"lat":31.276567},{"M":31.276606,"I":121.48828100000003,"lng":121.488281,"lat":31.276606},{"M":31.276619,"I":121.48791499999999,"lng":121.487915,"lat":31.276619},{"M":31.276619,"I":121.48777799999999,"lng":121.487778,"lat":31.276619},{"M":31.276606,"I":121.48742700000003,"lng":121.487427,"lat":31.276606},{"M":31.276585,"I":121.487236,"lng":121.487236,"lat":31.276585},{"M":31.276545,"I":121.48699999999997,"lng":121.487,"lat":31.276545},{"M":31.27648,"I":121.48670199999998,"lng":121.486702,"lat":31.27648},{"M":31.276302,"I":121.48612200000002,"lng":121.486122,"lat":31.276302},{"M":31.276072,"I":121.485588,"lng":121.485588,"lat":31.276072},{"M":31.275846,"I":121.485138,"lng":121.485138,"lat":31.275846},{"M":31.275391,"I":121.48425299999997,"lng":121.484253,"lat":31.275391},{"M":31.275286,"I":121.483994,"lng":121.483994,"lat":31.275286},{"M":31.2752,"I":121.48372699999999,"lng":121.483727,"lat":31.2752},{"M":31.275126,"I":121.48342100000002,"lng":121.483421,"lat":31.275126},{"M":31.275101,"I":121.48326099999997,"lng":121.483261,"lat":31.275101},{"M":31.275095,"I":121.48326099999997,"lng":121.483261,"lat":31.275095},{"M":31.275074,"I":121.483139,"lng":121.483139,"lat":31.275074},{"M":31.27503,"I":121.48274200000003,"lng":121.482742,"lat":31.27503},{"M":31.275,"I":121.48216200000002,"lng":121.482162,"lat":31.275},{"M":31.274948,"I":121.48201799999998,"lng":121.482018,"lat":31.274948},{"M":31.274975,"I":121.48143800000003,"lng":121.481438,"lat":31.274975},{"M":31.275009,"I":121.481178,"lng":121.481178,"lat":31.275009},{"M":31.275078,"I":121.48082,"lng":121.48082,"lat":31.275078},{"M":31.275227,"I":121.48020200000002,"lng":121.480202,"lat":31.275227},{"M":31.275356,"I":121.479736,"lng":121.479736,"lat":31.275356},{"M":31.275412,"I":121.47954600000003,"lng":121.479546,"lat":31.275412},{"M":31.27566,"I":121.478882,"lng":121.478882,"lat":31.27566},{"M":31.275812,"I":121.47850800000003,"lng":121.478508,"lat":31.275812},{"M":31.275867,"I":121.478386,"lng":121.478386,"lat":31.275867},{"M":31.276268,"I":121.47767599999997,"lng":121.477676,"lat":31.276268},{"M":31.276663,"I":121.477058,"lng":121.477058,"lat":31.276663},{"M":31.276667,"I":121.47695899999997,"lng":121.476959,"lat":31.276667},{"M":31.276888,"I":121.476631,"lng":121.476631,"lat":31.276888},{"M":31.277035,"I":121.47641799999997,"lng":121.476418,"lat":31.277035},{"M":31.277353,"I":121.47593699999999,"lng":121.475937,"lat":31.277353},{"M":31.277517,"I":121.47567700000002,"lng":121.475677,"lat":31.277517},{"M":31.277739,"I":121.47529600000001,"lng":121.475296,"lat":31.277739},{"M":31.277803,"I":121.475189,"lng":121.475189,"lat":31.277803},{"M":31.278008,"I":121.47477700000002,"lng":121.474777,"lat":31.278008},{"M":31.27812,"I":121.47452499999997,"lng":121.474525,"lat":31.27812},{"M":31.278263,"I":121.47415899999999,"lng":121.474159,"lat":31.278263},{"M":31.278824,"I":121.472534,"lng":121.472534,"lat":31.278824},{"M":31.278967,"I":121.47209900000001,"lng":121.472099,"lat":31.278967},{"M":31.278971,"I":121.47209900000001,"lng":121.472099,"lat":31.278971},{"M":31.279097,"I":121.47173299999997,"lng":121.471733,"lat":31.279097},{"M":31.27927,"I":121.47119900000001,"lng":121.471199,"lat":31.27927},{"M":31.279657,"I":121.47008499999998,"lng":121.470085,"lat":31.279657},{"M":31.279766,"I":121.46977200000003,"lng":121.469772,"lat":31.279766},{"M":31.279814,"I":121.469627,"lng":121.469627,"lat":31.279814},{"M":31.279909,"I":121.46914700000002,"lng":121.469147,"lat":31.279909},{"M":31.279947,"I":121.46892500000001,"lng":121.468925,"lat":31.279947},{"M":31.280005,"I":121.46828499999998,"lng":121.468285,"lat":31.280005},{"M":31.280039,"I":121.467896,"lng":121.467896,"lat":31.280039},{"M":31.280096,"I":121.46725500000002,"lng":121.467255,"lat":31.280096},{"M":31.280151,"I":121.466591,"lng":121.466591,"lat":31.280151},{"M":31.280209,"I":121.46591899999999,"lng":121.465919,"lat":31.280209},{"M":31.28027,"I":121.465195,"lng":121.465195,"lat":31.28027},{"M":31.280273,"I":121.46501899999998,"lng":121.465019,"lat":31.280273},{"M":31.28027,"I":121.46476000000001,"lng":121.46476,"lat":31.28027},{"M":31.280247,"I":121.46435500000001,"lng":121.464355,"lat":31.280247},{"M":31.280222,"I":121.46402,"lng":121.46402,"lat":31.280222},{"M":31.280178,"I":121.463684,"lng":121.463684,"lat":31.280178},{"M":31.280035,"I":121.462898,"lng":121.462898,"lat":31.280035},{"M":31.280012,"I":121.462761,"lng":121.462761,"lat":31.280012},{"M":31.279879,"I":121.46202900000003,"lng":121.462029,"lat":31.279879},{"M":31.279844,"I":121.461792,"lng":121.461792,"lat":31.279844},{"M":31.279791,"I":121.461502,"lng":121.461502,"lat":31.279791},{"M":31.279783,"I":121.461433,"lng":121.461433,"lat":31.279783},{"M":31.279631,"I":121.460625,"lng":121.460625,"lat":31.279631},{"M":31.279593,"I":121.460327,"lng":121.460327,"lat":31.279593},{"M":31.279579,"I":121.46012100000002,"lng":121.460121,"lat":31.279579},{"M":31.279575,"I":121.45999899999998,"lng":121.459999,"lat":31.279575},{"M":31.279549,"I":121.45862599999998,"lng":121.458626,"lat":31.279549},{"M":31.279549,"I":121.458504,"lng":121.458504,"lat":31.279549},{"M":31.279518,"I":121.45764200000002,"lng":121.457642,"lat":31.279518},{"M":31.279518,"I":121.45746600000001,"lng":121.457466,"lat":31.279518},{"M":31.279505,"I":121.45699300000001,"lng":121.456993,"lat":31.279505},{"M":31.279488,"I":121.45526100000001,"lng":121.455261,"lat":31.279488},{"M":31.279461,"I":121.45391799999999,"lng":121.453918,"lat":31.279461},{"M":31.279432,"I":121.45224000000002,"lng":121.45224,"lat":31.279432},{"M":31.279634,"I":121.45224000000002,"lng":121.45224,"lat":31.279634},{"M":31.279917,"I":121.45217100000002,"lng":121.452171,"lat":31.279917},{"M":31.280512,"I":121.45211,"lng":121.45211,"lat":31.280512},{"M":31.280899,"I":121.45208000000002,"lng":121.45208,"lat":31.280899},{"M":31.281471,"I":121.45201099999997,"lng":121.452011,"lat":31.281471},{"M":31.282135,"I":121.45196499999997,"lng":121.451965,"lat":31.282135},{"M":31.282452,"I":121.45194200000003,"lng":121.451942,"lat":31.282452},{"M":31.283272,"I":121.451889,"lng":121.451889,"lat":31.283272},{"M":31.283333,"I":121.451889,"lng":121.451889,"lat":31.283333},{"M":31.283716,"I":121.45185900000001,"lng":121.451859,"lat":31.283716},{"M":31.284142,"I":121.45180499999998,"lng":121.451805,"lat":31.284142},{"M":31.284588,"I":121.451775,"lng":121.451775,"lat":31.284588},{"M":31.284592,"I":121.451775,"lng":121.451775,"lat":31.284592},{"M":31.284588,"I":121.451775,"lng":121.451775,"lat":31.284588},{"M":31.285578,"I":121.45169099999998,"lng":121.451691,"lat":31.285578},{"M":31.286293,"I":121.451614,"lng":121.451614,"lat":31.286293},{"M":31.286697,"I":121.45154600000001,"lng":121.451546,"lat":31.286697},{"M":31.286837,"I":121.45152999999999,"lng":121.45153,"lat":31.286837},{"M":31.287092,"I":121.45149200000003,"lng":121.451492,"lat":31.287092},{"M":31.287388,"I":121.45143100000001,"lng":121.451431,"lat":31.287388},{"M":31.287388,"I":121.45142399999997,"lng":121.451424,"lat":31.287388},{"M":31.287807,"I":121.45135500000004,"lng":121.451355,"lat":31.287807},{"M":31.288195,"I":121.45128599999998,"lng":121.451286,"lat":31.288195},{"M":31.288837,"I":121.45114899999999,"lng":121.451149,"lat":31.288837},{"M":31.289158,"I":121.45107300000001,"lng":121.451073,"lat":31.289158},{"M":31.289114,"I":121.45072900000002,"lng":121.450729,"lat":31.289114},{"M":31.288815,"I":121.44878399999999,"lng":121.448784,"lat":31.288815},{"M":31.288811,"I":121.44878399999999,"lng":121.448784,"lat":31.288811},{"M":31.288719,"I":121.448174,"lng":121.448174,"lat":31.288719},{"M":31.28846,"I":121.44656399999997,"lng":121.446564,"lat":31.28846},{"M":31.288372,"I":121.44596100000001,"lng":121.445961,"lat":31.288372},{"M":31.288342,"I":121.44583899999998,"lng":121.445839,"lat":31.288342},{"M":31.288269,"I":121.445335,"lng":121.445335,"lat":31.288269},{"M":31.288185,"I":121.44487800000002,"lng":121.444878,"lat":31.288185},{"M":31.288134,"I":121.444458,"lng":121.444458,"lat":31.288134},{"M":31.288082,"I":121.44415300000003,"lng":121.444153,"lat":31.288082},{"M":31.288076,"I":121.44415300000003,"lng":121.444153,"lat":31.288076},{"M":31.287939,"I":121.44328300000001,"lng":121.443283,"lat":31.287939},{"M":31.287756,"I":121.44208500000002,"lng":121.442085,"lat":31.287756},{"M":31.286711,"I":121.44221500000003,"lng":121.442215,"lat":31.286711},{"M":31.285908,"I":121.44231400000001,"lng":121.442314,"lat":31.285908},{"M":31.285295,"I":121.44239800000003,"lng":121.442398,"lat":31.285295},{"M":31.28487,"I":121.442451,"lng":121.442451,"lat":31.28487},{"M":31.28437,"I":121.44253500000002,"lng":121.442535,"lat":31.28437},{"M":31.284163,"I":121.442566,"lng":121.442566,"lat":31.284163},{"M":31.284016,"I":121.442566,"lng":121.442566,"lat":31.284016},{"M":31.283442,"I":121.44264199999998,"lng":121.442642,"lat":31.283442},{"M":31.283224,"I":121.44265000000001,"lng":121.44265,"lat":31.283224},{"M":31.282887,"I":121.44271100000003,"lng":121.442711,"lat":31.282887},{"M":31.28274,"I":121.44146699999999,"lng":121.441467,"lat":31.28274},{"M":31.28274,"I":121.44146,"lng":121.44146,"lat":31.28274},{"M":31.282696,"I":121.44110899999998,"lng":121.441109,"lat":31.282696},{"M":31.282608,"I":121.44037600000001,"lng":121.440376,"lat":31.282608},{"M":31.282587,"I":121.44016999999997,"lng":121.44017,"lat":31.282587},{"M":31.28253,"I":121.43962099999999,"lng":121.439621,"lat":31.28253},{"M":31.282457,"I":121.43920100000003,"lng":121.439201,"lat":31.282457},{"M":31.282404,"I":121.438988,"lng":121.438988,"lat":31.282404},{"M":31.282318,"I":121.43869000000001,"lng":121.43869,"lat":31.282318},{"M":31.282169,"I":121.438263,"lng":121.438263,"lat":31.282169},{"M":31.281961,"I":121.43779799999999,"lng":121.437798,"lat":31.281961},{"M":31.281788,"I":121.43748499999998,"lng":121.437485,"lat":31.281788},{"M":31.281658,"I":121.43728599999997,"lng":121.437286,"lat":31.281658},{"M":31.281433,"I":121.43699600000002,"lng":121.436996,"lat":31.281433},{"M":31.281128,"I":121.436646,"lng":121.436646,"lat":31.281128},{"M":31.28092,"I":121.43638599999997,"lng":121.436386,"lat":31.28092},{"M":31.280737,"I":121.436195,"lng":121.436195,"lat":31.280737},{"M":31.280552,"I":121.435989,"lng":121.435989,"lat":31.280552},{"M":31.280373,"I":121.43579899999997,"lng":121.435799,"lat":31.280373},{"M":31.280239,"I":121.43566099999998,"lng":121.435661,"lat":31.280239},{"M":31.280012,"I":121.43540999999999,"lng":121.43541,"lat":31.280012},{"M":31.279743,"I":121.43511999999998,"lng":121.43512,"lat":31.279743},{"M":31.279739,"I":121.43511999999998,"lng":121.43512,"lat":31.279739},{"M":31.279192,"I":121.43453199999999,"lng":121.434532,"lat":31.279192},{"M":31.279032,"I":121.434349,"lng":121.434349,"lat":31.279032},{"M":31.279861,"I":121.433716,"lng":121.433716,"lat":31.279861},{"M":31.280117,"I":121.43352500000003,"lng":121.433525,"lat":31.280117},{"M":31.280457,"I":121.43328099999997,"lng":121.433281,"lat":31.280457},{"M":31.281012,"I":121.432884,"lng":121.432884,"lat":31.281012},{"M":31.281189,"I":121.43276200000003,"lng":121.432762,"lat":31.281189},{"M":31.28138,"I":121.43263200000001,"lng":121.432632,"lat":31.28138},{"M":31.281515,"I":121.432549,"lng":121.432549,"lat":31.281515},{"M":31.281723,"I":121.432457,"lng":121.432457,"lat":31.281723},{"M":31.28204,"I":121.432343,"lng":121.432343,"lat":31.28204},{"M":31.282396,"I":121.43225899999999,"lng":121.432259,"lat":31.282396}],"citycode":"021","start_stop":"平凉路大连路","end_stop":"原平路阳城路","stime":"0530","etime":"2300","company":"上海巴士第一公共交通有限公司","distance":"11.87739","basic_price":"2","total_price":"2","bounds":{"hb":{"M":31.252314,"I":121.43225899999999,"lng":121.432259,"lat":31.252314},"ab":{"M":31.289158,"I":121.51711999999998,"lng":121.51712,"lat":31.289158},"southwest":{"M":31.252314,"I":121.43225899999999,"lng":121.432259,"lat":31.252314},"northeast":{"M":31.289158,"I":121.51711999999998,"lng":121.51712,"lat":31.289158}},"via_stops":[{"id":"BV10024898","location":{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314},"name":"平凉路大连路","sequence":1,"shiID":"1"},{"id":"BV10025183","location":{"M":31.25905,"I":121.512291,"lng":121.512291,"lat":31.25905},"name":"大连路长阳路","sequence":2,"shiID":"2"},{"id":"BV10024556","location":{"M":31.263746,"I":121.50775899999996,"lng":121.507759,"lat":31.263746},"name":"大连路周家嘴路","sequence":3,"shiID":"3"},{"id":"BV10024573","location":{"M":31.267653,"I":121.50642399999998,"lng":121.506424,"lat":31.267653},"name":"大连路新港路","sequence":4,"shiID":"4"},{"id":"BV10025184","location":{"M":31.272661,"I":121.504074,"lng":121.504074,"lat":31.272661},"name":"和平公园","sequence":5,"shiID":"5"},{"id":"BV10025185","location":{"M":31.276051,"I":121.499619,"lng":121.499619,"lat":31.276051},"name":"大连西路四平路","sequence":6,"shiID":"6"},{"id":"BV10765226","location":{"M":31.276442,"I":121.494911,"lng":121.494911,"lat":31.276442},"name":"大连西路玉田新村","sequence":7,"shiID":"7"},{"id":"BV10024533","location":{"M":31.276619,"I":121.48791499999999,"lng":121.487915,"lat":31.276619},"name":"大连西路曲阳路","sequence":8,"shiID":"8"},{"id":"BV10025187","location":{"M":31.275101,"I":121.48326099999997,"lng":121.483261,"lat":31.275101},"name":"大连西路东体育会路","sequence":9,"shiID":"9"},{"id":"BV10025164","location":{"M":31.278967,"I":121.47209900000001,"lng":121.472099,"lat":31.278967},"name":"广中路水电路","sequence":10,"shiID":"10"},{"id":"BV10024619","location":{"M":31.280151,"I":121.466591,"lng":121.466591,"lat":31.280151},"name":"广中路广粤路","sequence":11,"shiID":"11"},{"id":"BV10025188","location":{"M":31.279579,"I":121.46012100000002,"lng":121.460121,"lat":31.279579},"name":"广中路平型关路","sequence":12,"shiID":"12"},{"id":"BV10025189","location":{"M":31.279461,"I":121.45391799999999,"lng":121.453918,"lat":31.279461},"name":"广中路共和新路","sequence":13,"shiID":"13"},{"id":"BV10025190","location":{"M":31.284588,"I":121.451775,"lng":121.451775,"lat":31.284588},"name":"共和新路彭江路","sequence":14,"shiID":"14"},{"id":"BV10025093","location":{"M":31.288815,"I":121.44878399999999,"lng":121.448784,"lat":31.288815},"name":"永和路共和新路","sequence":15,"shiID":"15"},{"id":"BV10025094","location":{"M":31.288082,"I":121.44415300000003,"lng":121.444153,"lat":31.288082},"name":"永和路万荣路","sequence":16,"shiID":"16"},{"id":"BV10025095","location":{"M":31.28274,"I":121.44146699999999,"lng":121.441467,"lat":31.28274},"name":"灵石路万荣路","sequence":17,"shiID":"17"},{"id":"BV10025104","location":{"M":31.279743,"I":121.43511999999998,"lng":121.43512,"lat":31.279743},"name":"灵石路原平路","sequence":18,"shiID":"18"},{"id":"BV10029993","location":{"M":31.282396,"I":121.43225899999999,"lng":121.432259,"lat":31.282396},"name":"原平路阳城路","sequence":19,"shiID":"19"}]},{"id":"310100014942","direction":"1","type":"普通公交","name":"79路(原平路永和小区--平凉路大连路)","path":[{"M":31.282431,"I":121.43225100000001,"lng":121.432251,"lat":31.282431},{"M":31.282808,"I":121.43221299999999,"lng":121.432213,"lat":31.282808},{"M":31.284618,"I":121.432121,"lng":121.432121,"lat":31.284618},{"M":31.28549,"I":121.43204500000002,"lng":121.432045,"lat":31.28549},{"M":31.286667,"I":121.43196899999998,"lng":121.431969,"lat":31.286667},{"M":31.287596,"I":121.43190800000002,"lng":121.431908,"lat":31.287596},{"M":31.288069,"I":121.431892,"lng":121.431892,"lat":31.288069},{"M":31.289275,"I":121.43184600000001,"lng":121.431846,"lat":31.289275},{"M":31.289866,"I":121.43532800000003,"lng":121.435328,"lat":31.289866},{"M":31.290494,"I":121.43908299999998,"lng":121.439083,"lat":31.290494},{"M":31.290875,"I":121.44144299999999,"lng":121.441443,"lat":31.290875},{"M":31.290421,"I":121.44156099999998,"lng":121.441561,"lat":31.290421},{"M":31.288837,"I":121.44189499999999,"lng":121.441895,"lat":31.288837},{"M":31.288603,"I":121.44194800000002,"lng":121.441948,"lat":31.288603},{"M":31.288576,"I":121.44194800000002,"lng":121.441948,"lat":31.288576},{"M":31.288242,"I":121.44201700000002,"lng":121.442017,"lat":31.288242},{"M":31.288168,"I":121.44203199999998,"lng":121.442032,"lat":31.288168},{"M":31.287878,"I":121.44207799999998,"lng":121.442078,"lat":31.287878},{"M":31.28776,"I":121.44208500000002,"lng":121.442085,"lat":31.28776},{"M":31.286715,"I":121.44221500000003,"lng":121.442215,"lat":31.286715},{"M":31.285912,"I":121.44231400000001,"lng":121.442314,"lat":31.285912},{"M":31.285299,"I":121.44239800000003,"lng":121.442398,"lat":31.285299},{"M":31.284874,"I":121.442451,"lng":121.442451,"lat":31.284874},{"M":31.284374,"I":121.44253500000002,"lng":121.442535,"lat":31.284374},{"M":31.284166,"I":121.442566,"lng":121.442566,"lat":31.284166},{"M":31.284019,"I":121.442566,"lng":121.442566,"lat":31.284019},{"M":31.283445,"I":121.44264199999998,"lng":121.442642,"lat":31.283445},{"M":31.28323,"I":121.44265000000001,"lng":121.44265,"lat":31.28323},{"M":31.28289,"I":121.44271100000003,"lng":121.442711,"lat":31.28289},{"M":31.282887,"I":121.44271100000003,"lng":121.442711,"lat":31.282887},{"M":31.282951,"I":121.44367999999997,"lng":121.44368,"lat":31.282951},{"M":31.282995,"I":121.44423699999999,"lng":121.444237,"lat":31.282995},{"M":31.283091,"I":121.44539600000002,"lng":121.445396,"lat":31.283091},{"M":31.283216,"I":121.44694500000003,"lng":121.446945,"lat":31.283216},{"M":31.28323,"I":121.447113,"lng":121.447113,"lat":31.28323},{"M":31.28326,"I":121.447449,"lng":121.447449,"lat":31.28326},{"M":31.283295,"I":121.44780700000001,"lng":121.447807,"lat":31.283295},{"M":31.283312,"I":121.448196,"lng":121.448196,"lat":31.283312},{"M":31.28336,"I":121.44881399999997,"lng":121.448814,"lat":31.28336},{"M":31.28336,"I":121.44882999999999,"lng":121.44883,"lat":31.28336},{"M":31.28336,"I":121.44926499999997,"lng":121.449265,"lat":31.28336},{"M":31.28336,"I":121.44988999999998,"lng":121.44989,"lat":31.28336},{"M":31.283356,"I":121.45045500000003,"lng":121.450455,"lat":31.283356},{"M":31.28335,"I":121.45103499999999,"lng":121.451035,"lat":31.28335},{"M":31.283346,"I":121.45121799999998,"lng":121.451218,"lat":31.283346},{"M":31.283356,"I":121.451637,"lng":121.451637,"lat":31.283356},{"M":31.283312,"I":121.451637,"lng":121.451637,"lat":31.283312},{"M":31.282135,"I":121.45173599999998,"lng":121.451736,"lat":31.282135},{"M":31.281649,"I":121.451797,"lng":121.451797,"lat":31.281649},{"M":31.280907,"I":121.45185900000001,"lng":121.451859,"lat":31.280907},{"M":31.279631,"I":121.45199600000001,"lng":121.451996,"lat":31.279631},{"M":31.279379,"I":121.45203400000003,"lng":121.452034,"lat":31.279379},{"M":31.279306,"I":121.45224000000002,"lng":121.45224,"lat":31.279306},{"M":31.279297,"I":121.45263699999998,"lng":121.452637,"lat":31.279297},{"M":31.279335,"I":121.45527600000003,"lng":121.455276,"lat":31.279335},{"M":31.279358,"I":121.456841,"lng":121.456841,"lat":31.279358},{"M":31.279362,"I":121.45702399999999,"lng":121.457024,"lat":31.279362},{"M":31.279375,"I":121.45748100000003,"lng":121.457481,"lat":31.279375},{"M":31.279385,"I":121.45764200000002,"lng":121.457642,"lat":31.279385},{"M":31.279392,"I":121.45860299999998,"lng":121.458603,"lat":31.279392},{"M":31.279396,"I":121.45867900000002,"lng":121.458679,"lat":31.279396},{"M":31.279432,"I":121.45992999999999,"lng":121.45993,"lat":31.279432},{"M":31.27944,"I":121.46017499999999,"lng":121.460175,"lat":31.27944},{"M":31.279453,"I":121.460327,"lng":121.460327,"lat":31.279453},{"M":31.279552,"I":121.46095300000002,"lng":121.460953,"lat":31.279552},{"M":31.279648,"I":121.461502,"lng":121.461502,"lat":31.279648},{"M":31.279701,"I":121.461792,"lng":121.461792,"lat":31.279701},{"M":31.279726,"I":121.46194500000001,"lng":121.461945,"lat":31.279726},{"M":31.279882,"I":121.46279099999998,"lng":121.462791,"lat":31.279882},{"M":31.279905,"I":121.46291400000001,"lng":121.462914,"lat":31.279905},{"M":31.280035,"I":121.463707,"lng":121.463707,"lat":31.280035},{"M":31.280113,"I":121.46419500000002,"lng":121.464195,"lat":31.280113},{"M":31.280134,"I":121.46447799999999,"lng":121.464478,"lat":31.280134},{"M":31.280157,"I":121.465012,"lng":121.465012,"lat":31.280157},{"M":31.280157,"I":121.46533999999997,"lng":121.46534,"lat":31.280157},{"M":31.280022,"I":121.46675099999999,"lng":121.466751,"lat":31.280022},{"M":31.280018,"I":121.46675900000002,"lng":121.466759,"lat":31.280018},{"M":31.280018,"I":121.46675099999999,"lng":121.466751,"lat":31.280018},{"M":31.279974,"I":121.467239,"lng":121.467239,"lat":31.279974},{"M":31.279886,"I":121.46828499999998,"lng":121.468285,"lat":31.279886},{"M":31.279858,"I":121.46869700000002,"lng":121.468697,"lat":31.279858},{"M":31.279814,"I":121.469131,"lng":121.469131,"lat":31.279814},{"M":31.279797,"I":121.469315,"lng":121.469315,"lat":31.279797},{"M":31.279722,"I":121.469604,"lng":121.469604,"lat":31.279722},{"M":31.279596,"I":121.470032,"lng":121.470032,"lat":31.279596},{"M":31.279402,"I":121.47060399999998,"lng":121.470604,"lat":31.279402},{"M":31.279083,"I":121.471474,"lng":121.471474,"lat":31.279083},{"M":31.278351,"I":121.47359499999999,"lng":121.473595,"lat":31.278351},{"M":31.278334,"I":121.47364800000003,"lng":121.473648,"lat":31.278334},{"M":31.27812,"I":121.47425099999998,"lng":121.474251,"lat":31.27812},{"M":31.277912,"I":121.47475400000002,"lng":121.474754,"lat":31.277912},{"M":31.277664,"I":121.47522700000002,"lng":121.475227,"lat":31.277664},{"M":31.277609,"I":121.47531100000003,"lng":121.475311,"lat":31.277609},{"M":31.277431,"I":121.47560900000002,"lng":121.475609,"lat":31.277431},{"M":31.27734,"I":121.475662,"lng":121.475662,"lat":31.27734},{"M":31.276936,"I":121.47631799999999,"lng":121.476318,"lat":31.276936},{"M":31.276575,"I":121.476875,"lng":121.476875,"lat":31.276575},{"M":31.276228,"I":121.47744,"lng":121.47744,"lat":31.276228},{"M":31.275816,"I":121.478226,"lng":121.478226,"lat":31.275816},{"M":31.275721,"I":121.47841599999998,"lng":121.478416,"lat":31.275721},{"M":31.275261,"I":121.47965199999999,"lng":121.479652,"lat":31.275261},{"M":31.275126,"I":121.48004900000001,"lng":121.480049,"lat":31.275126},{"M":31.275043,"I":121.48029300000002,"lng":121.480293,"lat":31.275043},{"M":31.274931,"I":121.48085000000003,"lng":121.48085,"lat":31.274931},{"M":31.274918,"I":121.48094900000001,"lng":121.480949,"lat":31.274918},{"M":31.274914,"I":121.48094900000001,"lng":121.480949,"lat":31.274914},{"M":31.274883,"I":121.48116299999998,"lng":121.481163,"lat":31.274883},{"M":31.274878,"I":121.48116299999998,"lng":121.481163,"lat":31.274878},{"M":31.274826,"I":121.48132299999997,"lng":121.481323,"lat":31.274826},{"M":31.274752,"I":121.48172799999998,"lng":121.481728,"lat":31.274752},{"M":31.274734,"I":121.48197900000002,"lng":121.481979,"lat":31.274734},{"M":31.274734,"I":121.48226899999997,"lng":121.482269,"lat":31.274734},{"M":31.274788,"I":121.48274200000003,"lng":121.482742,"lat":31.274788},{"M":31.274874,"I":121.48324600000001,"lng":121.483246,"lat":31.274874},{"M":31.274897,"I":121.48329899999999,"lng":121.483299,"lat":31.274897},{"M":31.275023,"I":121.483452,"lng":121.483452,"lat":31.275023},{"M":31.275105,"I":121.48374899999999,"lng":121.483749,"lat":31.275105},{"M":31.275326,"I":121.48427600000002,"lng":121.484276,"lat":31.275326},{"M":31.275459,"I":121.48456599999997,"lng":121.484566,"lat":31.275459},{"M":31.275993,"I":121.48562600000002,"lng":121.485626,"lat":31.275993},{"M":31.27622,"I":121.48613699999999,"lng":121.486137,"lat":31.27622},{"M":31.276333,"I":121.48644999999999,"lng":121.48645,"lat":31.276333},{"M":31.276432,"I":121.48679400000003,"lng":121.486794,"lat":31.276432},{"M":31.276497,"I":121.487099,"lng":121.487099,"lat":31.276497},{"M":31.276527,"I":121.48728900000003,"lng":121.487289,"lat":31.276527},{"M":31.276545,"I":121.48751099999998,"lng":121.487511,"lat":31.276545},{"M":31.27655,"I":121.48767099999998,"lng":121.487671,"lat":31.27655},{"M":31.27655,"I":121.48828100000003,"lng":121.488281,"lat":31.27655},{"M":31.27655,"I":121.48843399999998,"lng":121.488434,"lat":31.27655},{"M":31.276545,"I":121.48843399999998,"lng":121.488434,"lat":31.276545},{"M":31.276545,"I":121.48871600000001,"lng":121.488716,"lat":31.276545},{"M":31.27652,"I":121.48973799999999,"lng":121.489738,"lat":31.27652},{"M":31.276497,"I":121.490479,"lng":121.490479,"lat":31.276497},{"M":31.276493,"I":121.49054699999999,"lng":121.490547,"lat":31.276493},{"M":31.276442,"I":121.49274400000002,"lng":121.492744,"lat":31.276442},{"M":31.276436,"I":121.49274400000002,"lng":121.492744,"lat":31.276436},{"M":31.276428,"I":121.49323300000003,"lng":121.493233,"lat":31.276428},{"M":31.276371,"I":121.49522400000001,"lng":121.495224,"lat":31.276371},{"M":31.276337,"I":121.49655899999999,"lng":121.496559,"lat":31.276337},{"M":31.276337,"I":121.49767300000002,"lng":121.497673,"lat":31.276337},{"M":31.276329,"I":121.498291,"lng":121.498291,"lat":31.276329},{"M":31.276299,"I":121.498558,"lng":121.498558,"lat":31.276299},{"M":31.276211,"I":121.499031,"lng":121.499031,"lat":31.276211},{"M":31.276167,"I":121.49916100000002,"lng":121.499161,"lat":31.276167},{"M":31.276007,"I":121.49960299999998,"lng":121.499603,"lat":31.276007},{"M":31.275959,"I":121.49970200000001,"lng":121.499702,"lat":31.275959},{"M":31.275955,"I":121.49970200000001,"lng":121.499702,"lat":31.275955},{"M":31.275928,"I":121.49975599999999,"lng":121.499756,"lat":31.275928},{"M":31.275864,"I":121.49990100000002,"lng":121.499901,"lat":31.275864},{"M":31.275642,"I":121.50035100000002,"lng":121.500351,"lat":31.275642},{"M":31.275513,"I":121.500565,"lng":121.500565,"lat":31.275513},{"M":31.2752,"I":121.50093800000002,"lng":121.500938,"lat":31.2752},{"M":31.274843,"I":121.50133499999998,"lng":121.501335,"lat":31.274843},{"M":31.274731,"I":121.50145700000002,"lng":121.501457,"lat":31.274731},{"M":31.27453,"I":121.501686,"lng":121.501686,"lat":31.27453},{"M":31.274176,"I":121.50212899999997,"lng":121.502129,"lat":31.274176},{"M":31.273954,"I":121.50239599999998,"lng":121.502396,"lat":31.273954},{"M":31.273563,"I":121.50287600000001,"lng":121.502876,"lat":31.273563},{"M":31.2729,"I":121.50367699999998,"lng":121.503677,"lat":31.2729},{"M":31.272274,"I":121.50442499999997,"lng":121.504425,"lat":31.272274},{"M":31.272223,"I":121.50450899999998,"lng":121.504509,"lat":31.272223},{"M":31.271624,"I":121.505226,"lng":121.505226,"lat":31.271624},{"M":31.271589,"I":121.50525700000003,"lng":121.505257,"lat":31.271589},{"M":31.270699,"I":121.50635499999999,"lng":121.506355,"lat":31.270699},{"M":31.270651,"I":121.50640099999998,"lng":121.506401,"lat":31.270651},{"M":31.27062,"I":121.506416,"lng":121.506416,"lat":31.27062},{"M":31.270555,"I":121.50642399999998,"lng":121.506424,"lat":31.270555},{"M":31.270525,"I":121.50642399999998,"lng":121.506424,"lat":31.270525},{"M":31.270498,"I":121.50642399999998,"lng":121.506424,"lat":31.270498},{"M":31.270035,"I":121.50638600000002,"lng":121.506386,"lat":31.270035},{"M":31.26967,"I":121.50636299999996,"lng":121.506363,"lat":31.26967},{"M":31.268871,"I":121.50631699999997,"lng":121.506317,"lat":31.268871},{"M":31.268629,"I":121.506302,"lng":121.506302,"lat":31.268629},{"M":31.268055,"I":121.50629400000003,"lng":121.506294,"lat":31.268055},{"M":31.267656,"I":121.50628699999999,"lng":121.506287,"lat":31.267656},{"M":31.267221,"I":121.50628699999999,"lng":121.506287,"lat":31.267221},{"M":31.266724,"I":121.506279,"lng":121.506279,"lat":31.266724},{"M":31.266581,"I":121.50628699999999,"lng":121.506287,"lat":31.266581},{"M":31.266329,"I":121.50631699999997,"lng":121.506317,"lat":31.266329},{"M":31.266088,"I":121.50635499999999,"lng":121.506355,"lat":31.266088},{"M":31.265656,"I":121.50646999999998,"lng":121.50647,"lat":31.265656},{"M":31.265533,"I":121.506508,"lng":121.506508,"lat":31.265533},{"M":31.26553,"I":121.506508,"lng":121.506508,"lat":31.26553},{"M":31.26549,"I":121.50651600000003,"lng":121.506516,"lat":31.26549},{"M":31.265244,"I":121.50662999999997,"lng":121.50663,"lat":31.265244},{"M":31.265135,"I":121.50669900000003,"lng":121.506699,"lat":31.265135},{"M":31.264757,"I":121.50692700000002,"lng":121.506927,"lat":31.264757},{"M":31.264587,"I":121.50704200000001,"lng":121.507042,"lat":31.264587},{"M":31.263685,"I":121.50762199999997,"lng":121.507622,"lat":31.263685},{"M":31.263229,"I":121.50789600000002,"lng":121.507896,"lat":31.263229},{"M":31.263016,"I":121.50804900000003,"lng":121.508049,"lat":31.263016},{"M":31.262848,"I":121.50818600000002,"lng":121.508186,"lat":31.262848},{"M":31.262695,"I":121.50831599999998,"lng":121.508316,"lat":31.262695},{"M":31.262573,"I":121.50843800000001,"lng":121.508438,"lat":31.262573},{"M":31.262434,"I":121.508423,"lng":121.508423,"lat":31.262434},{"M":31.261787,"I":121.50913200000002,"lng":121.509132,"lat":31.261787},{"M":31.261631,"I":121.50931500000002,"lng":121.509315,"lat":31.261631},{"M":31.261358,"I":121.509636,"lng":121.509636,"lat":31.261358},{"M":31.261171,"I":121.50988799999999,"lng":121.509888,"lat":31.261171},{"M":31.26112,"I":121.510155,"lng":121.510155,"lat":31.26112},{"M":31.26083,"I":121.51048300000002,"lng":121.510483,"lat":31.26083},{"M":31.260626,"I":121.51068900000001,"lng":121.510689,"lat":31.260626},{"M":31.260412,"I":121.51086399999997,"lng":121.510864,"lat":31.260412},{"M":31.259674,"I":121.511528,"lng":121.511528,"lat":31.259674},{"M":31.259201,"I":121.51196299999998,"lng":121.511963,"lat":31.259201},{"M":31.259071,"I":121.51207699999998,"lng":121.512077,"lat":31.259071},{"M":31.258711,"I":121.51238999999998,"lng":121.51239,"lat":31.258711},{"M":31.257982,"I":121.51302299999998,"lng":121.513023,"lat":31.257982},{"M":31.2579,"I":121.51309200000003,"lng":121.513092,"lat":31.2579},{"M":31.257587,"I":121.513351,"lng":121.513351,"lat":31.257587},{"M":31.257278,"I":121.51362599999999,"lng":121.513626,"lat":31.257278},{"M":31.256832,"I":121.51406099999997,"lng":121.514061,"lat":31.256832},{"M":31.256605,"I":121.514252,"lng":121.514252,"lat":31.256605},{"M":31.256493,"I":121.51428199999998,"lng":121.514282,"lat":31.256493},{"M":31.25573,"I":121.51482399999998,"lng":121.514824,"lat":31.25573},{"M":31.255413,"I":121.515038,"lng":121.515038,"lat":31.255413},{"M":31.255217,"I":121.515175,"lng":121.515175,"lat":31.255217},{"M":31.255018,"I":121.515289,"lng":121.515289,"lat":31.255018},{"M":31.254791,"I":121.51542699999999,"lng":121.515427,"lat":31.254791},{"M":31.254379,"I":121.51574700000003,"lng":121.515747,"lat":31.254379},{"M":31.253897,"I":121.516075,"lng":121.516075,"lat":31.253897},{"M":31.253511,"I":121.51633500000003,"lng":121.516335,"lat":31.253511},{"M":31.253113,"I":121.516594,"lng":121.516594,"lat":31.253113},{"M":31.252743,"I":121.51686899999999,"lng":121.516869,"lat":31.252743},{"M":31.251796,"I":121.51759300000003,"lng":121.517593,"lat":31.251796},{"M":31.251572,"I":121.516144,"lng":121.516144,"lat":31.251572},{"M":31.251562,"I":121.51602200000002,"lng":121.516022,"lat":31.251562},{"M":31.251507,"I":121.51515999999998,"lng":121.51516,"lat":31.251507},{"M":31.251467,"I":121.51480900000001,"lng":121.514809,"lat":31.251467},{"M":31.251649,"I":121.51505099999997,"lng":121.515051,"lat":31.251649},{"M":31.252108,"I":121.51578599999999,"lng":121.515786,"lat":31.252108},{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314}],"citycode":"021","start_stop":"原平路永和小区","end_stop":"平凉路大连路","stime":"0530","etime":"2316","company":"上海巴士第一公共交通有限公司","distance":"12.36295","basic_price":"2","total_price":"2","bounds":{"hb":{"M":31.251467,"I":121.43184600000001,"lng":121.431846,"lat":31.251467},"ab":{"M":31.290875,"I":121.51759300000003,"lng":121.517593,"lat":31.290875},"southwest":{"M":31.251467,"I":121.43184600000001,"lng":121.431846,"lat":31.251467},"northeast":{"M":31.290875,"I":121.51759300000003,"lng":121.517593,"lat":31.290875}},"via_stops":[{"id":"BV10865169","location":{"M":31.282431,"I":121.43225100000001,"lng":121.432251,"lat":31.282431},"name":"原平路永和小区","sequence":1,"shiID":"1"},{"id":"BV10030095","location":{"M":31.288069,"I":121.431892,"lng":121.431892,"lat":31.288069},"name":"原平路永和路","sequence":2,"shiID":"2"},{"id":"BV10410165","location":{"M":31.288837,"I":121.44189499999999,"lng":121.441895,"lat":31.288837},"name":"万荣路永和支路","sequence":3,"shiID":"4"},{"id":"BV10025095","location":{"M":31.282951,"I":121.44367999999997,"lng":121.44368,"lat":31.282951},"name":"灵石路万荣路","sequence":4,"shiID":"5"},{"id":"BV10030642","location":{"M":31.28336,"I":121.44882999999999,"lng":121.44883,"lat":31.28336},"name":"灵石路共和新路","sequence":5,"shiID":"6"},{"id":"BV10025188","location":{"M":31.279358,"I":121.456841,"lng":121.456841,"lat":31.279358},"name":"广中路平型关路","sequence":6,"shiID":"7"},{"id":"BV10024619","location":{"M":31.280022,"I":121.46675099999999,"lng":121.466751,"lat":31.280022},"name":"广中路广粤路","sequence":7,"shiID":"8"},{"id":"BV10025164","location":{"M":31.278351,"I":121.47359499999999,"lng":121.473595,"lat":31.278351},"name":"广中路水电路","sequence":8,"shiID":"9"},{"id":"BV10025187","location":{"M":31.274918,"I":121.48094900000001,"lng":121.480949,"lat":31.274918},"name":"大连西路东体育会路","sequence":9,"shiID":"10"},{"id":"BV10024533","location":{"M":31.27655,"I":121.48843399999998,"lng":121.488434,"lat":31.27655},"name":"大连西路曲阳路","sequence":10,"shiID":"11"},{"id":"BV10765226","location":{"M":31.276442,"I":121.49274400000002,"lng":121.492744,"lat":31.276442},"name":"大连西路玉田新村","sequence":11,"shiID":"12"},{"id":"BV10025185","location":{"M":31.275959,"I":121.49970200000001,"lng":121.499702,"lat":31.275959},"name":"大连西路四平路","sequence":12,"shiID":"13"},{"id":"BV10025184","location":{"M":31.271624,"I":121.505226,"lng":121.505226,"lat":31.271624},"name":"和平公园","sequence":13,"shiID":"14"},{"id":"BV10025193","location":{"M":31.265533,"I":121.506508,"lng":121.506508,"lat":31.265533},"name":"大连路飞虹路","sequence":14,"shiID":"15"},{"id":"BV10024556","location":{"M":31.261631,"I":121.50931500000002,"lng":121.509315,"lat":31.261631},"name":"大连路周家嘴路","sequence":15,"shiID":"16"},{"id":"BV10025183","location":{"M":31.259071,"I":121.51207699999998,"lng":121.512077,"lat":31.259071},"name":"大连路长阳路","sequence":16,"shiID":"17"},{"id":"BV10024898","location":{"M":31.252314,"I":121.51612899999998,"lng":121.516129,"lat":31.252314},"name":"平凉路大连路","sequence":17,"shiID":"18"}]}],collectStop:"灵石路原平路"}]};
 </script>
 </body>
 </html>
