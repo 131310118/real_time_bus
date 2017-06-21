@@ -205,7 +205,7 @@
         busStations: [],//保存附近公交站点[marker]
         nearStops: (function() {
             return {
-                lnglat: new AMap.LngLat(121.438408, 31.280004),
+                lnglat: new AMap.LngLat(121.375351,31.243017),
                 pois: []
             }
         })(),//周边站点组件
@@ -323,9 +323,11 @@
                 that.busStations[i].hide();
             }
             that.busStations.length = j;
-            that.handleStopMarkerClick({
-                target: that.busStations[0]
-            });
+            if(that.busStations[0]) {
+                that.handleStopMarkerClick({
+                    target: that.busStations[0]
+                });
+            }
             that.isSearchNearBy = true;
             obj.GD.map.setFitView(that.busStations.concat(that.stopWindow));
         }//获取到周边站点，绘制并绑定事件
@@ -727,7 +729,7 @@
             obj.search.searchMarker && obj.search.searchMarker.hide();
             obj.nearBy.searchNearByMarker && obj.nearBy.searchNearByMarker.hide();
             obj.nearBy.showBusStation();
-            window.tools.removeClass(obj.dom.stationLines, 'hiden');
+            window.tools.removeClass(obj.dom.footerStationLines, 'hiden');
             window.tools.addClass(obj.dom.realTimeStation, 'hiden');
             window.tools.addClass(obj.dom.realTimeInfo, 'hiden');
             obj.nearBy.busStations[0].emit('click', {
@@ -830,7 +832,7 @@
             } else {
                 infoContent.innerHTML = '<span class="rtb_highlight">' + obj.line.busName + '</span> ·\
                         <span class="rtb_highlight">' + marker.getExtData().info.name + '</span>\
-                        <span class="rtb_highlight">暂无数据</span>\
+                        <span class="rtb_highlight">等待发车</span>\
                     ';
                 window.tools.addClass(obj.dom.realTimeInfo, 'hiden');
                 obj.dom.judgePosition();
@@ -928,6 +930,10 @@
                             callback();
                         }
                     }, null)
+                } else {
+                    if(callback) {
+                        callback();
+                    }
                 }
             } else {
                 if(final) {
@@ -987,17 +993,21 @@
                     //根据status判断是否有正确结果
                     if(status === 'complete' && result.info === 'OK'){
                         console.log(result);
-                        result.stationInfo.forEach(function(station) {
-                            station.location = station.location.getLng() + ',' + station.location.getLat();
-                            station.address = function() {
-                                var arr = [];
-                                station.buslines.forEach(function(line) {
-                                    arr.push(line.name.replace(/\(.*\)/, ''));
-                                })
-                                return arr.join(';')
-                            }()
+                        var stationInfo = [];
+                        result.stationInfo.forEach(function(s) {
+                            if(/\(公交站\)$/.test(s.name)) {
+                                s.location = s.location.getLng() + ',' + s.location.getLat();
+                                s.address = function() {
+                                    var arr = [];
+                                    s.buslines.forEach(function(line) {
+                                        arr.push(line.name.replace(/\(.*\)/, ''));
+                                    });
+                                    return arr.join(';')
+                                }();
+                                stationInfo.push(s);
+                            }
                         });
-                        success(result.stationInfo, station);
+                        success(stationInfo, station);
                     }else{
                         //查询失败或者没有合适结果
                         success([], station);
@@ -1147,8 +1157,13 @@
                 search.length = search.length > 5?5:search.length;
                 obj.search.show(result);
             };
-            searchKeyword.addEventListener('keydown', function(e) {
+            searchKeyword.addEventListener('keyup', function(e) {
                 e = window.event || e;
+                if(searchKeyword.value) {
+                    window.tools.removeClass(obj.dom.searchInit, 'hiden');
+                } else {
+                    window.tools.addClass(obj.dom.searchInit, 'hiden');
+                }
                 clearTimeout(timeout);
                 timeout = setTimeout(function() {
                     if(window.tools.trim(searchKeyword.value)) {
@@ -1162,8 +1177,10 @@
                 body.style.height = body.clientHeight + 'px';
                 if(searchKeyword.value) {
                     obj.dom.searchBody.className = '';
+                    window.tools.removeClass(obj.dom.searchInit, 'hiden');
                 } else {
                     showSearchListory();
+                    window.tools.addClass(obj.dom.searchInit, 'hiden');
                 }
             });
             searchKeyword.addEventListener('mousedown', function() {
@@ -1225,7 +1242,37 @@
                 }
             })
         })(),
+        searchHeaderButtom: (function() {
+            var searchHeaderButtom = document.querySelector('.search_header-buttom');
+            var searchKeyword = document.getElementById('search_keyword');
+            var showSearchListory = function() {
+                var result = [];
+                var searchMap = {};
+                for(var i = 0, l = search.length; i < l; i++) {
+                    if(!searchMap[search[i].title]) {
+                        searchMap[search[i].title] = true;
+                        result.push(search[i].extData);
+                    } else {
+                        search.splice(i, 1);
+                        l = search.length;
+                        i--;
+                    }
+                }
+                search.length = search.length > 5?5:search.length;
+                obj.search.show(result);
+            };
+            searchHeaderButtom.addEventListener('click', function() {
+                if(window.tools.trim(searchKeyword.value)) {
+                    obj.search.search(searchKeyword.value, 1, 10);
+                    setTimeout(function() {
+                        window.tools.removeClass(obj.dom.searchBody, 'hiden');
+                    },1000 / 60);
+                }
+            });
+            return searchHeaderButtom;
+        })(),
         stationLines: document.getElementById('stationLines'),
+        footerStationLines: document.querySelector('.footer-stationLines'),
         footer: document.getElementById('footer'),
         judgePosition: (function() {
             var lastTime = 0;
@@ -1235,7 +1282,7 @@
                 if(!amap) {
                     amap = document.getElementsByClassName('amap-geolocation-con')[0];
                 }
-                amap.style.bottom = obj.dom.footer.clientHeight + 'px';
+                amap.style.bottom = obj.dom.footer.clientHeight + 10 + 'px';
                 //obj.GD.map.setButtonOffset(new AMap.Pixel(10, 20 + obj.dom.footer.clientHeight));
             };
             return function() {
@@ -1253,12 +1300,12 @@
             var control = document.getElementById('control');
             var stationLines = document.getElementById('stationLines');
             control.addEventListener('click', function() {
-                if(window.tools.hasClass(stationLines, 'more')) {
-                    window.tools.removeClass(stationLines, 'more');
-                    window.tools.addClass(stationLines, 'less');
+                if(window.tools.hasClass(obj.dom.footerStationLines, 'more')) {
+                    window.tools.removeClass(obj.dom.footerStationLines, 'more');
+                    window.tools.addClass(obj.dom.footerStationLines, 'less');
                 } else {
-                    window.tools.removeClass(stationLines, 'less');
-                    window.tools.addClass(stationLines, 'more');
+                    window.tools.removeClass(obj.dom.footerStationLines, 'less');
+                    window.tools.addClass(obj.dom.footerStationLines, 'more');
                 }
                 obj.dom.judgePosition();
             })
@@ -1378,9 +1425,10 @@
             initStationLines: function() {
                 obj.dom.stationLines.innerHTML = '';
                 obj.dom.stationLines.className = '';
+                obj.dom.footerStationLines.className = 'footer-stationLines hiden';
                 obj.dom.handleEvent.timeInterval.forEach(function(interval) {
                     clearInterval(interval);
-                })
+                });
                 obj.dom.handleEvent.timeInterval.length = 0;
             },//初始化公交信息栏
             updateLine: function(number, active) {
@@ -1400,7 +1448,7 @@
                     var that = obj.line;
                     that.busLines[bus] = result;
                     data = data.lineInfo;
-                    var fail = function() {
+                    var fail = function(status) {
                         var i = 0;
                         var direction = false;
                         var d = {};
@@ -1451,7 +1499,7 @@
 
                                 var footer = document.createElement('div');
                                 var busIcon = document.createElement('i');
-                                busIcon.className = 'fa fa-bus';
+                                busIcon.className = 'fa fa-bus stationLines-red';
                                 var span = document.createElement('span');
                                 var stops = document.createElement('span');
                                 var time = document.createElement('span');
@@ -1552,7 +1600,9 @@
                                             clearInterval(dom.interval);
                                         }
                                         da = da.da;
-                                        span.innerHTML = '';
+                                        span.innerHTML = '';if(status && status === 1) {
+                                            span.className = 'stationLines-red';
+                                        }
                                         time.innerText = window.tools.parseMsToTime(da.cars[0].time);
                                         //time.setAttribute('value', data.cars[0].time);
                                         var interval = (function() {
@@ -1562,7 +1612,7 @@
                                                 var now = new Date() * 1;
                                                 var expire = now - last;
                                                 if(expire < 30000) {
-                                                    if(da.cars) {
+                                                    if(da.cars && da.cars.length) {
                                                         time.innerText = window.tools.parseMsToTime(da.cars[0].time - Math.floor(expire / 1000));
                                                     }
                                                 } else {
@@ -1572,12 +1622,15 @@
                                                             distence = 5000;
                                                             stops.innerText = cars.cars[0].stopdis;
                                                             time.innerText = window.tools.parseMsToTime(cars.cars[0].time);
+                                                            if(!da.cars[0]) {
+                                                                da.cars[0] = {};
+                                                            }
                                                             da.cars[0].time = cars.cars[0].time;
                                                             last = new Date() * 1;
                                                         } else {
                                                             span.innerHTML = '';
-                                                            span.appendChild(document.createTextNode('暂无数据'));
-                                                            da.cars = null;
+                                                            span.appendChild(document.createTextNode('此线路暂不支持实时到站查询'));
+                                                            da.cars = [];
                                                             last = new Date() * 1 - 30000 + distence;
                                                             distence *= 2;
                                                             distence  = distence > 3600000?3600000:distence;
@@ -1603,10 +1656,19 @@
                                         }
                                     } else if(typeof da === 'string') {
                                         span.innerHTML = '';
+                                        if(status && status === 1) {
+                                            span.className = 'stationLines-red';
+                                        }
                                         span.appendChild(document.createTextNode(da));
                                     } else{
                                         span.innerHTML = '';
-                                        span.appendChild(document.createTextNode('暂无数据'));
+                                        if(status && status === 1) {
+                                            span.className = 'stationLines-red';
+                                            span.appendChild(document.createTextNode('此线路暂不支持实时到站查询'));
+                                        } else {
+                                            span.className = 'stationLines-red';
+                                            span.appendChild(document.createTextNode('接口异常，暂无数据'));
+                                        }
                                     }
                                 };
 
@@ -1720,7 +1782,7 @@
                                     updatafooterUI(that.busLines[bus].lineInfo[dire].via_stops);
                                     //getArriveBaseData();
                                     if (d[dire]) {
-                                        updateFooter("暂无数据");
+                                        updateFooter("等待发车");
                                     } else {
                                         updateFooter("注意该线路不经过该站点哦");
                                     }
@@ -1778,9 +1840,13 @@
                                         } else {
                                             updateFooter();
                                         }
-                                        if (number == 2) {
+                                        if(number == 0) {
+                                            window.tools.removeClass(obj.dom.footerStationLines, 'hiden');
+                                        }
+                                        if (number == 0) {
                                             //更多
                                             window.tools.addClass(obj.dom.stationLines, 'more');
+                                            window.tools.addClass(obj.dom.footerStationLines, 'more');
                                         }
                                         number++;
                                         obj.dom.judgePosition();
@@ -1991,7 +2057,7 @@
                                                                     var now = new Date() * 1;
                                                                     var expire = now - last;
                                                                     if(expire < 30000) {
-                                                                        if(da.cars) {
+                                                                        if(da.cars && da.cars.length) {
                                                                             time.innerText = window.tools.parseMsToTime(da.cars[0].time - Math.floor(expire / 1000));
                                                                         }
                                                                     } else {
@@ -2001,12 +2067,26 @@
                                                                                 distence = 5000;
                                                                                 stops.innerText = cars.cars[0].stopdis;
                                                                                 time.innerText = window.tools.parseMsToTime(cars.cars[0].time);
+                                                                                if(!da.cars[0]) {
+                                                                                    da.cars[0] = {};
+                                                                                }
                                                                                 da.cars[0].time = cars.cars[0].time;
                                                                                 last = new Date() * 1;
+
+                                                                                dom.activeBus.forEach(function(car) {
+                                                                                    car.className = '';
+                                                                                });
+                                                                                dom.activeBus.length = 0;
+                                                                                cars.cars.forEach(function (car) {
+                                                                                    var index = dom.index - car.stopdis;
+                                                                                    index = index < 0 ? 0 : index >= stations.childNodes.length ? stations.childNodes.length - 1 : index;
+                                                                                    stations.childNodes[index].className = 'bus';
+                                                                                    dom.activeBus.push(stations.childNodes[index]);
+                                                                                });
                                                                             } else {
                                                                                 span.innerHTML = '';
-                                                                                span.appendChild(document.createTextNode('暂无数据'));
-                                                                                da.cars = null;
+                                                                                span.appendChild(document.createTextNode('等待发车'));
+                                                                                da.cars = [];
                                                                                 last = new Date() * 1 - 30000 + distence;
                                                                                 distence *= 2;
                                                                                 distence  = distence > 3600000?3600000:distence;
@@ -2035,7 +2115,7 @@
                                                             span.appendChild(document.createTextNode(da));
                                                         } else{
                                                             span.innerHTML = '';
-                                                            span.appendChild(document.createTextNode('暂无数据'));
+                                                            span.appendChild(document.createTextNode('等待发车'));
                                                         }
                                                     };
 
@@ -2050,7 +2130,7 @@
                                                                 dom.index = index;
                                                                 p.className = 'active';
                                                                 d.activeMarker = p;
-                                                                if(!window.tools.hasClass(stationsBox, 'hiden')) {
+                                                                /*if(!window.tools.hasClass(stationsBox, 'hiden')) {
                                                                     if(index == 0) {
                                                                         that.linesearchInfo.start.emit('click', {
                                                                             target: that.linesearchInfo.start
@@ -2064,7 +2144,7 @@
                                                                             target: that.linesearchInfo.stops[index - 1]
                                                                         })
                                                                     }
-                                                                }
+                                                                }*/
                                                             } else {
                                                                 p.className = '';
                                                             }
@@ -2098,6 +2178,9 @@
                                                                 //obj.dom.handleEvent.timeInterval.length = 0;
                                                             })
                                                         });
+                                                        if(dom.index) {
+                                                            stations.scrollLeft = (dom.index - 3) * 55;
+                                                        }
                                                     };
 
                                                     var switchBusLine = function() {
@@ -2164,7 +2247,7 @@
                                                                     if (da && da.cars && da.cars[0]) {
                                                                         updateFooter({da:da});
                                                                     } else {
-                                                                        updateFooter("暂无数据");
+                                                                        updateFooter("等待发车");
                                                                     }
                                                                 }
                                                             });
@@ -2173,6 +2256,10 @@
                                                         }
                                                     });
                                                     down.addEventListener('click', function() {
+                                                        obj.dom.handleEvent.updateFooter = updateFooter;
+                                                        obj.nearBy.hideBusStation(); //隐藏周边组件
+                                                        footer.appendChild(stationsBox);
+                                                        switchBusLine();
                                                         if(window.tools.hasClass(down, 'fa-angle-down')) {
                                                             if(active.down) {
                                                                 window.tools.removeClass(active.down, 'fa-angle-up');
@@ -2182,17 +2269,17 @@
                                                             window.tools.removeClass(down, 'fa-angle-down');
                                                             window.tools.addClass(down, 'fa-angle-up');
                                                             window.tools.removeClass(stationsBox, 'hiden');
+                                                            obj.dom.stationLines.scrollTop = dom.offsetTop;
                                                             active.down = down;
                                                             active.box = stationsBox;
+                                                            if(dom.index) {
+                                                                stations.scrollLeft = (dom.index - 3) * 55;
+                                                            }
                                                         } else {
                                                             window.tools.removeClass(down, 'fa-angle-up');
                                                             window.tools.addClass(down, 'fa-angle-down');
                                                             window.tools.addClass(stationsBox, 'hiden');
                                                         }
-                                                        obj.dom.handleEvent.updateFooter = updateFooter;
-                                                        obj.nearBy.hideBusStation(); //隐藏周边组件
-                                                        footer.appendChild(stationsBox);
-                                                        switchBusLine();
                                                     });
 
                                                     var stop = [];
@@ -2246,9 +2333,13 @@
                                                                             }
                                                                         });
                                                                     }
-                                                                    if (number == 2) {
+                                                                    if(number == 0) {
+                                                                        window.tools.removeClass(obj.dom.footerStationLines, 'hiden');
+                                                                    }
+                                                                    if (number == 0) {
                                                                         //更多
                                                                         window.tools.addClass(obj.dom.stationLines, 'more');
+                                                                        window.tools.addClass(obj.dom.footerStationLines, 'more');
                                                                     }
                                                                     number++;
                                                                     obj.dom.judgePosition();
@@ -2339,7 +2430,7 @@
                                     }
                                 });
                             } else {
-                                fail();
+                                fail(1);
                             }
                         },
                         error: function() {
@@ -2394,8 +2485,12 @@ window.realTimeBus.GD.map.plugin('AMap.Geolocation', function() {
 
 //定位成功
 function onComplete(info) {
-    AMap.event.removeListener(geoEventCom);
-    AMap.event.removeListener(geoEventErr);
+    //AMap.event.removeListener(geoEventCom);
+    //AMap.event.removeListener(geoEventErr);
+    var obj = window.realTimeBus;
+    obj.line.hideLineInfo();
+    obj.search.searchMarker && obj.search.searchMarker.hide();
+    obj.nearBy.searchNearByMarker && obj.nearBy.searchNearByMarker.hide();
 
     //打印定位信息
     var str = ['定位成功'];
@@ -2420,22 +2515,28 @@ function onComplete(info) {
 
 //定位失败
 function onError(data) {
-    window.realTimeBus.GD.map.setCenter(new AMap.LngLat(121.438408, 31.280004));
-    AMap.event.removeListener(geoEventCom);
-    AMap.event.removeListener(geoEventErr);
+    var obj = window.realTimeBus;
+    window.realTimeBus.GD.map.setCenter(obj.nearBy.nearStops.lnglat);
+    //AMap.event.removeListener(geoEventCom);
+    //AMap.event.removeListener(geoEventErr);
+    obj.line.hideLineInfo();
+    obj.search.searchMarker && obj.search.searchMarker.hide();
+    obj.nearBy.searchNearByMarker && obj.nearBy.searchNearByMarker.hide();
 
     console.log('定位失败');
+    tips.show({text: '暂时无法获取到您的位置信息',autoHide: false,confirm:"确定"});
     window.realTimeBus.nearBy.getStops({
-        location: 121.378860 + ',' + 31.245039,
+        location: obj.nearBy.nearStops.lnglat.getLng() + ',' + obj.nearBy.nearStops.lnglat.getLat(),
         radius: window.realTimeBus.user.radius,
-        position: new AMap.LngLat(121.378860, 31.245039),
+        position: obj.nearBy.nearStops.lnglat,
         success: window.realTimeBus.nearBy.updateStopsUI.bind(window.realTimeBus.nearBy)
     }); //查询周边公交站点
     window.realTimeBus.nearBy.searchNearBy();
 }
 
 (function() {
-    var collections = document.getElementById('collections');
+    //var collections = document.getElementById('collections');
+    var collections = document.querySelector('.top_left-collection');
     var collectionsList = document.querySelector('.collectionsList');
     var obj = window.realTimeBus;
     var coll = obj.search.collections;
